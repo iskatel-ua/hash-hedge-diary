@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Hash Hedge Dictionary",
+  "version": "1.0.0",
+  "description": "Trading statistics for HashHedge CFD trades",
+  "permissions": ["storage", "cookies", "webRequest"],
+  "host_permissions": [
+    "https://cb.hashhedge.com/*",
+    "https://hashhedge.com/*",
+    "https://*.hashhedge.com/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://hashhedge.com/*", "https://*.hashhedge.com/*"],
+      "js": ["content/auth-extractor.js", "content/trade-fetcher.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
