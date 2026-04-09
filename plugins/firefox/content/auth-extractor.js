@@ -1,7 +1,7 @@
 /**
- * Content script — runs on hashhedge.com pages.
+ * Firefox Content script — runs on hashhedge.com pages.
  * Searches localStorage and sessionStorage for an auth token
- * and forwards it to the background service worker.
+ * and forwards it to the background script.
  */
 (function () {
   'use strict';
@@ -50,14 +50,14 @@
 
   const token = extractToken();
   if (token) {
-    chrome.runtime.sendMessage({ type: 'STORE_TOKEN', token }, () => {
-      if (chrome.runtime.lastError) {
-        console.debug('[HashHedge] sendMessage error:', chrome.runtime.lastError.message);
+    browser.runtime.sendMessage({ type: 'STORE_TOKEN', token }, () => {
+      if (browser.runtime.lastError) {
+        console.debug('[HashHedge] sendMessage error:', browser.runtime.lastError.message);
       } else {
         console.debug('[HashHedge] Auth token stored in background');
       }
     });
   } else {
-    console.debug('[HashHedge] No auth token found — will fall back to cookies');
+    console.debug('[HashHedge] No token found in localStorage/sessionStorage');
   }
 })();

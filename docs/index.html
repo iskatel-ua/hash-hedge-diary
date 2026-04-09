@@ -124,13 +124,13 @@
       border-radius: 12px;
       background: rgba(255, 255, 255, 0.03);
       color: var(--muted);
-      font-size: 13px;
+      font-size: 14px;
       line-height: 1.6;
     }
 
     .quick-actions {
       display: grid;
-      grid-template-columns: repeat(2, minmax(220px, 1fr));
+      grid-template-columns: repeat(3, minmax(180px, 1fr));
       gap: 14px;
       margin-top: 18px;
     }
@@ -192,7 +192,7 @@
       padding-left: 18px;
       color: var(--muted);
       font-size: 13px;
-      line-height: 1.7;
+      line-height: 2.1;
     }
 
     .wallet-grid {
@@ -237,7 +237,7 @@
       border-radius: 12px;
       background: rgba(255, 255, 255, 0.03);
       color: var(--text);
-      font-size: 13px;
+      font-size: 11px;
       line-height: 1.6;
       word-break: break-all;
     }
@@ -280,6 +280,44 @@
       color: var(--accent);
     }
 
+    .tabs {
+      display: flex;
+      gap: 0;
+      margin: 0 0 12px;
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .tab-button {
+      padding: 10px 16px;
+      border: none;
+      border-bottom: 3px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      font: inherit;
+      font-size: 13px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: color 0.15s ease, border-color 0.15s ease;
+    }
+
+    .tab-button:hover {
+      color: var(--text);
+    }
+
+    .tab-button.active {
+      border-bottom-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
     @media (max-width: 900px) {
       main {
         width: min(100%, calc(100% - 20px));
@@ -294,6 +332,10 @@
 
       .hero__preview {
         order: -1;
+      }
+
+      .quick-actions {
+        grid-template-columns: repeat(3, 1fr);
       }
     }
 
@@ -336,6 +378,16 @@
           <span class="quick-action__title">Download</span>
           <span class="quick-action__sub">Chrome extension</span>
         </a>
+        <a
+          class="quick-action"
+          href="https://raw.githubusercontent.com/iskatel-ua/hash-hedge-diary/master/hash-hedge-firefox.zip"
+          target="_blank"
+          rel="noopener noreferrer"
+          download
+        >
+          <span class="quick-action__title">Download</span>
+          <span class="quick-action__sub">Firefox extension</span>
+        </a>
         <!-- Keep this URL synchronized with the VirusTotal link in README badge. -->
         <a
           class="quick-action"
@@ -350,12 +402,30 @@
 
       <div class="install-guide">
         <p class="install-guide__title">Install guide</p>
-        <ol>
-          <li>Download the ready archive <code>hash-hedge-chrome.zip</code> using the Download button above.</li>
-          <li>Extract the archive and open <code>chrome://extensions</code> in Chrome.</li>
-          <li>Enable Developer mode and click Load unpacked.</li>
-          <li>Select the extracted folder that contains <code>manifest.json</code>.</li>
-        </ol>
+        
+        <div class="tabs">
+          <button class="tab-button active" data-tab="chrome">Chrome</button>
+          <button class="tab-button" data-tab="firefox">Firefox</button>
+        </div>
+
+        <div id="chrome" class="tab-content active">
+          <ol>
+            <li>Download archive <code>hash-hedge-chrome.zip</code> using the Download button above.</li>
+            <li>Extract the archive and open <code>chrome://extensions</code> in Chrome.</li>
+            <li>Enable Developer mode and click Load unpacked.</li>
+            <li>Select the extracted folder that contains <code>manifest.json</code>.</li>
+          </ol>
+        </div>
+
+        <div id="firefox" class="tab-content">
+          <ol>
+            <li>Download archive <code>hash-hedge-firefox.zip</code> using the Download button above.</li>
+            <li>Open <code>about:debugging</code> in Firefox address bar.</li>
+            <li>Click "This Firefox" in the left sidebar.</li>
+            <li>Click "Load Temporary Add-on" and select <code>manifest.json</code> from the extracted folder.</li>
+            <li>For permanent installation, see <a href="https://github.com/iskatel-ua/hash-hedge-diary/blob/master/plugins/firefox/INSTALL.md" target="_blank" style="color: var(--accent);">detailed guide</a>.</li>
+          </ol>
+        </div>
       </div>
       </div>
 
@@ -392,6 +462,7 @@
   </main>
 
   <script>
+    // Copy button functionality
     for (const button of document.querySelectorAll('.copy-button')) {
       button.addEventListener('click', async () => {
         const card = button.closest('.wallet-card');
@@ -409,6 +480,27 @@
             button.textContent = 'Copy address';
           }, 1200);
         }
+      });
+    }
+
+    // Tab switching functionality
+    for (const button of document.querySelectorAll('.tab-button')) {
+      button.addEventListener('click', () => {
+        const tabName = button.dataset.tab;
+        
+        // Hide all tab content
+        for (const content of document.querySelectorAll('.tab-content')) {
+          content.classList.remove('active');
+        }
+        
+        // Remove active state from all buttons
+        for (const btn of document.querySelectorAll('.tab-button')) {
+          btn.classList.remove('active');
+        }
+        
+        // Show selected tab and mark button as active
+        document.getElementById(tabName)?.classList.add('active');
+        button.classList.add('active');
       });
     }
   </script>

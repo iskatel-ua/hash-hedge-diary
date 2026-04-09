@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>...</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header">
+    <span class="header__title">...</span>
+    <div class="header__actions">
+      <button class="btn-lang" id="btnLang" type="button">EN</button>
+      <a class="btn-donate" id="btnDonate" href="https://iskatel-ua.github.io/hash-hedge-diary/docs/" target="_blank" rel="noopener noreferrer">Thank you</a>
+      <span class="header__logo" aria-hidden="true">
+        <img class="header__logo-image" src="../assets/images/logo.png" alt="" />
+      </span>
+    </div>
+  </header>
+
+  <!-- Status bar -->
+  <div class="status-bar">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusText">...</span>
+  </div>
+
+  <!-- Error message -->
+  <div class="error-msg" id="errorMsg"></div>
+
+  <!-- Metrics grid — populated by popup.js -->
+  <div class="metrics-grid" id="metricsGrid">
+    <!-- Skeleton placeholders shown before data loads -->
+    <div class="metric-card">
+      <div class="metric-card__label skeleton">Win Rate</div>
+      <div class="metric-card__value skeleton">000.00%</div>
+      <div class="metric-card__sub skeleton">0 W / 0 L</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-card__label skeleton">Total PNL</div>
+      <div class="metric-card__value skeleton">+0000.00</div>
+      <div class="metric-card__sub skeleton">across 0 trades</div>
+    </div>
+    <div class="metric-card metric-card--wide">
+      <div class="metric-card__label skeleton">Direction Split</div>
+      <div class="metric-card__value skeleton">0 ↑ / 0 ↓</div>
+      <div class="metric-card__sub skeleton">Total: 0</div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <button class="btn-refresh" id="btnRefresh" disabled>
+      ↻ ...
+    </button>
+    <span class="footer__count" id="tradeCount"></span>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

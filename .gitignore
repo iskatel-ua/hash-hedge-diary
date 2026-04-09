@@ -4,6 +4,7 @@ node_modules/
 # VirusTotal scan artifacts
 *.zip
 !hash-hedge-chrome.zip
+!hash-hedge-firefox.zip
 virustotal-results.json
 
 # IDE
@@ -14,3 +15,4 @@ virustotal-results.json
 # OS
 .DS_Store
 Thumbs.db
+__pycache__/

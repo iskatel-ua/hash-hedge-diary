@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Hash Hedge Diary",
+  "version": "1.0.0",
+  "description": "Hash Hedge Diary: Trading statistics for HashHedge CFD trades",
+  "permissions": ["storage", "webRequest", "cookies"],
+  "host_permissions": [
+    "https://cb.hashhedge.com/*",
+    "https://hashhedge.com/*",
+    "https://*.hashhedge.com/*"
+  ],
+  "background": {
+    "scripts": ["background/background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://hashhedge.com/*", "https://*.hashhedge.com/*"],
+      "js": ["content/auth-extractor.js", "content/trade-fetcher.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "assets/icons/icon16.png",
+      "48": "assets/icons/icon48.png",
+      "128": "assets/icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "assets/icons/icon16.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "hash-hedge-diary@iskatel-ua.github.io",
+      "strict_min_version": "109.0"
+    }
+  }
+}
