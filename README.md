@@ -1,6 +1,6 @@
-# Hash Hedge Dictionary
+# Hash Hedge Diary
 
-A Chrome extension that displays advanced trading statistics for your closed CFD positions on [hashhedge.com](https://hashhedge.com).
+Hash Hedge Diary is a Chrome extension that displays advanced trading statistics for your closed CFD positions on [hashhedge.com](https://hashhedge.com).
 
 ![Demo](demo.jpg)
 
@@ -70,9 +70,9 @@ The popup is available in **English** and **Russian** and remembers your languag
 
 ---
 
-# Hash Hedge Dictionary (Русский)
+# Hash Hedge Diary (Русский)
 
-Расширение для Chrome, которое отображает расширенную торговую статистику по закрытым CFD-позициям на [hashhedge.com](https://hashhedge.com).
+Hash Hedge Diary (дневник) — расширение для Chrome, которое отображает расширенную торговую статистику по закрытым CFD-позициям на [hashhedge.com](https://hashhedge.com).
 
 ---
 

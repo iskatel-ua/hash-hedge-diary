@@ -8,7 +8,7 @@ let lastUpdatedAt = null;
 
 const I18N = {
   en: {
-    title: 'Hash Hedge Dictionary',
+    title: 'Hash Hedge Diary',
     initialising: 'Initialising…',
     loading: 'Loading…',
     updated: 'Updated',
@@ -45,7 +45,7 @@ const I18N = {
     },
   },
   ru: {
-    title: 'Hash Hedge Dictionary',
+    title: 'Hash Hedge Diary',
     initialising: 'Инициализация…',
     loading: 'Загрузка…',
     updated: 'Обновлено',
