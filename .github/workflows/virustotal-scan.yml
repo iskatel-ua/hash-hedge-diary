@@ -50,9 +50,9 @@ jobs:
               exit(0)
           
           scan_file = os.getenv('SCAN_FILE')
-            with open(scan_file, 'rb') as f:
+          with open(scan_file, 'rb') as f:
               file_sha256 = hashlib.sha256(f.read()).hexdigest()
-            print(f"File SHA256: {file_sha256}")
+          print(f"File SHA256: {file_sha256}")
           
           # Upload file
           print(f"Uploading {scan_file} to VirusTotal...")
@@ -119,10 +119,10 @@ jobs:
           with open('virustotal-results.json', 'w') as f:
               json.dump({
                   'analysis_id': analysis_id,
-                'file_sha256': file_sha256,
+                  'file_sha256': file_sha256,
                   'stats': stats,
                   'scan_date': analysis['data']['attributes']['date'],
-                'permalink': f"https://www.virustotal.com/gui/file/{file_sha256}"
+                  'permalink': f"https://www.virustotal.com/gui/file/{file_sha256}"
               }, f, indent=2)
           
           # Fail if malicious detected
