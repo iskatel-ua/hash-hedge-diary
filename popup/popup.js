@@ -22,6 +22,7 @@ const I18N = {
     helpButton: 'Open metric help',
     switchLangTitle: 'Switch language',
     switchedTo: 'Language',
+    currentLanguageName: 'English',
     dow: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
     metricLabels: {
       winRate: 'Win Rate',
@@ -59,6 +60,7 @@ const I18N = {
     helpButton: 'Открыть справку по метрике',
     switchLangTitle: 'Переключить язык',
     switchedTo: 'Язык',
+    currentLanguageName: 'Русский',
     dow: ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'],
     metricLabels: {
       winRate: 'Винрейт',
@@ -115,9 +117,9 @@ function toggleLocale() {
   }
 
   if (lastUpdatedAt) {
-    setStatus('ok', `${t('updated')} ${lastUpdatedAt.toLocaleTimeString()}`);
+    setStatus('ok', `${t('updated')} ${formatTime(lastUpdatedAt)}`);
   } else {
-    setStatus('ok', `${t('switchedTo')} ${locale.toUpperCase()}`);
+    setStatus('ok', `${t('switchedTo')} ${t('currentLanguageName')}`);
   }
 }
 
@@ -134,6 +136,15 @@ function metricLabel(id, fallback) {
 function metricHelp(id) {
   const local = I18N[locale] || I18N.en;
   return local.metricHelp?.[id] || '';
+}
+
+function formatTime(date) {
+  const localeTag = locale === 'ru' ? 'ru-RU' : 'en-US';
+  return date.toLocaleTimeString(localeTag, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
 }
 
 // ── DOM references ────────────────────────────────────────────────
@@ -313,7 +324,7 @@ async function loadData(activeFilters = {}) {
 
     renderMetrics(response.metrics, response.filteredCount, response.tradeCount);
     lastUpdatedAt = new Date();
-    setStatus('ok', `${t('updated')} ${lastUpdatedAt.toLocaleTimeString()}`);
+    setStatus('ok', `${t('updated')} ${formatTime(lastUpdatedAt)}`);
   } catch (e) {
     setStatus('error', t('error'));
     showError(e?.message || t('noMessage'));
