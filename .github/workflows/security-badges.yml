@@ -20,6 +20,8 @@ jobs:
         with:
           name: virustotal-results
           path: .
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
       
       - name: Generate security badges
@@ -111,10 +113,20 @@ jobs:
             echo "✓ Generated default badge (PENDING)"
           fi
       
+      - name: Update README badge link
+        run: |
+          if [ -f "virustotal-results.json" ]; then
+            PERMALINK=$(python3 -c "import json; print(json.load(open('virustotal-results.json'))['permalink'])")
+            if [ -n "$PERMALINK" ]; then
+              sed -i "s|(https://www.virustotal.com/gui/file/[a-f0-9]*)|(${PERMALINK})|g" README.md
+              echo "Updated README badge link to: $PERMALINK"
+            fi
+          fi
+
       - name: Commit and push badges
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add .github/badges/security-status.svg
-          git commit -m "chore: update security status badge from VirusTotal scan" || echo "No changes to commit"
+          git add .github/badges/security-status.svg README.md
+          git commit -m "chore: update security status badge and VT permalink" || echo "No changes to commit"
           git push || echo "Nothing to push"
