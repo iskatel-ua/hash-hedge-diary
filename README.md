@@ -2,6 +2,8 @@
 
 A Chrome extension that displays advanced trading statistics for your closed CFD positions on [hashhedge.com](https://hashhedge.com).
 
+![Demo](demo.jpg)
+
 ---
 
 ## What it does
