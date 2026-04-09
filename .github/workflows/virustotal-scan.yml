@@ -200,7 +200,7 @@ jobs:
           fi
           PERMALINK=$(python3 -c "import json; print(json.load(open('virustotal-results.json'))['permalink'])")
           echo "New permalink: $PERMALINK"
-          sed -i -E "s|(https://www\.virustotal\.com/gui/file/[a-f0-9]+)|(${PERMALINK})|g" README.md
+          sed -i -E "s|\(https://www\.virustotal\.com/gui/file/[a-f0-9]+\)|(${PERMALINK})|g" README.md
           grep -o 'virustotal.com/gui/file/[a-f0-9]*' README.md || echo "Pattern not found in README"
 
       - name: Commit and push badge and README
