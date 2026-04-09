@@ -2,7 +2,7 @@
 
 [![VirusTotal Scan](https://github.com/iskatel-ua/hash-hedge-diary/actions/workflows/virustotal-scan.yml/badge.svg)](https://www.virustotal.com/gui/file/2747233bcd3e76266cf5130ea5675e369be1d945512deab421bca4110d643789)
 
-> Maintainers note: when updating the VirusTotal report URL, update the same URL in `pages/index.html` (VirusTotal button).
+> Maintainers note: when updating the VirusTotal report URL, update the same URL in `docs/index.html` (VirusTotal button).
 
 Hash Hedge Diary is a Chrome extension that displays advanced trading statistics for your closed CFD positions on [hashhedge.com](https://hashhedge.com).
 
@@ -103,7 +103,7 @@ The repository includes a Husky pre-commit hook that rebuilds `hash-hedge-chrome
 
 If this extension is useful to you, you can open the support page with crypto wallet details here:
 
-- [Support Hash Hedge Diary](https://iskatel-ua.github.io/hash-hedge-diary/index.html)
+- [Support Hash Hedge Diary](https://iskatel-ua.github.io/hash-hedge-diary/docs/)
 
 ---
 
@@ -181,7 +181,7 @@ Hash Hedge Diary (дневник) — расширение для Chrome, кот
 
 Если расширение вам полезно, страница поддержки с реквизитами крипто-кошельков доступна здесь:
 
-- [Поддержать Hash Hedge Diary](https://iskatel-ua.github.io/hash-hedge-diary/index.html)
+- [Поддержать Hash Hedge Diary](https://iskatel-ua.github.io/hash-hedge-diary/docs/)
 
 ---
 
