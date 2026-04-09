@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# VirusTotal scan artifacts
+*.zip
+virustotal-results.json
+
+# IDE
+.vscode/
+.idea/
+*.json.bak
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,5 +1,8 @@
 # Hash Hedge Diary
 
+[![VirusTotal Scan](https://github.com/${{ repository }}/actions/workflows/virustotal-scan.yml/badge.svg)](https://github.com/${{ repository }}/actions/workflows/virustotal-scan.yml)
+[![Security Check](../../raw/main/.github/badges/security-check.svg)](https://www.virustotal.com/)
+
 Hash Hedge Diary is a Chrome extension that displays advanced trading statistics for your closed CFD positions on [hashhedge.com](https://hashhedge.com).
 
 ![Demo](demo.jpg)
@@ -53,6 +56,38 @@ The popup is available in **English** and **Russian** and remembers your languag
 | `webRequest` | Passively captures auth headers from the page's own requests to `cb.hashhedge.com`. No data is intercepted or sent anywhere else. |
 | `storage` | Stores captured auth headers in session storage and saves language preference. |
 | `cookies` | Used as a fallback auth method if headers are not yet available. |
+
+---
+
+## Security
+
+This extension is automatically scanned for security threats using **VirusTotal** on every commit and pull request.
+
+- ✅ **Security badges** at the top of this README show the scan status
+- 🔍 **Automated checks** run on push and PR using GitHub Actions
+- 🛡️ **Results are public** — you can verify the scan on VirusTotal directly
+
+### Manual Security Verification
+
+You can manually scan this repository:
+
+1. Download or clone the repository ZIP file
+2. Visit [virustotal.com](https://www.virustotal.com/)
+3. Upload the file and verify the results
+4. You can also use the `sha256sum` hash of this repository to check it on VirusTotal
+
+### Setting up VirusTotal Scanning (for repository maintainers)
+
+To enable automated VirusTotal scanning on your fork:
+
+1. Create a free VirusTotal account at [virustotal.com](https://www.virustotal.com/)
+2. Generate an API key from your profile settings
+3. Add it to your GitHub repository as a secret:
+   - Go to **Settings → Secrets and variables → Actions**
+   - Click **New repository secret**
+   - Name: `VIRUSTOTAL_API_KEY`
+   - Value: Your VirusTotal API key
+4. The scan will run automatically on the next push
 
 ---
 

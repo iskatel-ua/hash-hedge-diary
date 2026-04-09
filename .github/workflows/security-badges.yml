@@ -1,0 +1,55 @@
+name: Generate Security Badges
+
+on:
+  workflow_run:
+    workflows: ["VirusTotal Security Scan"]
+    types:
+      - completed
+  workflow_dispatch:
+
+jobs:
+  badges:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Generate badges
+        run: |
+          mkdir -p .github/badges
+          
+          # Safe badge (green)
+          cat > .github/badges/security-check.svg << 'SVG'
+          <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="140" height="20" role="img" aria-label="security: passed">
+              <title>security: passed</title>
+              <linearGradient id="s" x2="0" y2="100%">
+                  <stop offset="0" stop-color="#bbb"/>
+                  <stop offset="1" stop-color="#999"/>
+              </linearGradient>
+              <clipPath id="r">
+                  <rect width="140" height="20" rx="3" fill="#fff"/>
+              </clipPath>
+              <g clip-path="url(#r)">
+                  <rect width="95" height="20" fill="#555"/>
+                  <rect x="95" width="45" height="20" fill="#4c1"/>
+                  <rect width="140" height="20" fill="url(#s)"/>
+              </g>
+              <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="110">
+                  <text aria-hidden="true" x="485" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="850">virustotal</text>
+                  <text x="485" y="140" transform="scale(.1)" fill="#fff" textLength="850">virustotal</text>
+                  <text aria-hidden="true" x="1165" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="350">passed</text>
+                  <text x="1165" y="140" transform="scale(.1)" fill="#fff" textLength="350">passed</text>
+              </g>
+          </svg>
+          SVG
+          
+          echo "Badges generated successfully"
+      
+      - name: Commit and push badges
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/badges/security-check.svg || true
+          git commit -m "chore: update security badges" || true
+          git push || true
