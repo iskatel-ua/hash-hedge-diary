@@ -1,6 +1,6 @@
 # Hash Hedge Diary
 
-[![VirusTotal Scan](https://github.com/iskatel-ua/hash-hedge-diary/actions/workflows/virustotal-scan.yml/badge.svg)](https://www.virustotal.com/gui/file/4a2741576d4f9e02778ae6e1f4f548701343e2bdf463d330109ac611dbabb673)
+[![VirusTotal Scan](https://github.com/iskatel-ua/hash-hedge-diary/actions/workflows/virustotal-scan.yml/badge.svg)](https://www.virustotal.com/gui/file/ba3341f01433bc805eb375bfee24338bc64c29b53b0342f7ead9bdf7f7837665)
 
 Hash Hedge Diary is a Chrome extension that displays advanced trading statistics for your closed CFD positions on [hashhedge.com](https://hashhedge.com).
 
