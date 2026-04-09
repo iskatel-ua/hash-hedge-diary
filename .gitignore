@@ -3,6 +3,7 @@ node_modules/
 
 # VirusTotal scan artifacts
 *.zip
+!hash-hedge-chrome.zip
 virustotal-results.json
 
 # IDE

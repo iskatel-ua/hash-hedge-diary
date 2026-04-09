@@ -1,0 +1,15 @@
+#!/usr/bin/env sh
+set -e
+
+echo "Building hash-hedge-chrome.zip from plugins/chrome..."
+
+if command -v python >/dev/null 2>&1; then
+  python scripts/build_chrome_archive.py
+elif command -v python3 >/dev/null 2>&1; then
+  python3 scripts/build_chrome_archive.py
+else
+  echo "Python is required to build hash-hedge-chrome.zip" >&2
+  exit 1
+fi
+
+git add hash-hedge-chrome.zip

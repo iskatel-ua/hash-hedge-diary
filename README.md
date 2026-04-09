@@ -90,6 +90,13 @@ To enable automated VirusTotal scanning on your fork:
    - Value: Your VirusTotal API key
 4. The scan will run automatically on the next push
 
+### Maintaining Download Archive (for repository maintainers)
+
+The repository includes a Husky pre-commit hook that rebuilds `hash-hedge-chrome.zip` from `plugins/chrome`.
+
+1. Run `npm install` once in the repository root to enable Husky hooks.
+2. On each commit, the archive in the repository root is regenerated automatically.
+
 ---
 
 ## Support

@@ -1,0 +1,11 @@
+{
+  "name": "hash-hadge",
+  "private": true,
+  "scripts": {
+    "prepare": "husky",
+    "build:chrome-archive": "python scripts/build_chrome_archive.py"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7"
+  }
+}
