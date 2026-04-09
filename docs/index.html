@@ -31,18 +31,40 @@
     }
 
     main {
-      width: min(980px, calc(100% - 32px));
+      width: min(1100px, calc(100% - 32px));
       margin: 0 auto;
       padding: 56px 0 72px;
     }
 
     .hero {
+      display: grid;
+      grid-template-columns: 60fr 40fr;
+      gap: 24px;
+      align-items: start;
       padding: 32px;
       border: 1px solid var(--panel-border);
       border-radius: 24px;
       background: var(--panel);
       box-shadow: var(--shadow);
       backdrop-filter: blur(10px);
+    }
+
+    .hero__preview {
+      border: 1px solid var(--panel-border);
+      border-radius: 16px;
+      overflow: hidden;
+      background: rgba(0, 0, 0, 0.32);
+      box-shadow: var(--shadow);
+    }
+
+    .hero__preview img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .hero__content {
+      min-width: 0;
     }
 
     .brand {
@@ -178,6 +200,11 @@
       grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
       gap: 16px;
       margin-top: 24px;
+      padding: 24px;
+      border: 1px solid var(--panel-border);
+      border-radius: 24px;
+      background: var(--panel);
+      backdrop-filter: blur(10px);
     }
 
     .wallet-card {
@@ -253,15 +280,27 @@
       color: var(--accent);
     }
 
-    @media (max-width: 640px) {
+    @media (max-width: 900px) {
       main {
         width: min(100%, calc(100% - 20px));
         padding: 20px 0 28px;
       }
 
       .hero {
+        grid-template-columns: 1fr;
         padding: 20px;
         border-radius: 18px;
+      }
+
+      .hero__preview {
+        order: -1;
+      }
+    }
+
+    @media (max-width: 640px) {
+      main {
+        width: min(100%, calc(100% - 20px));
+        padding: 20px 0 28px;
       }
 
       .quick-actions {
@@ -272,7 +311,8 @@
 </head>
 <body>
   <main>
-    <section class="hero">
+      <section class="hero">
+      <div class="hero__content">
       <div class="brand">
         <img class="brand__logo" src="assets/images/logo.png" alt="Hash Hedge Diary logo" />
         <h1 class="brand__name">Hash Hedge Diary</h1>
@@ -317,6 +357,12 @@
           <li>Select the extracted folder that contains <code>manifest.json</code>.</li>
         </ol>
       </div>
+      </div>
+
+      <aside class="hero__preview" aria-hidden="true">
+        <img src="assets/images/demo.jpg" alt="" />
+      </aside>
+      </section>
 
       <div class="wallet-grid">
         <article class="wallet-card">
@@ -343,7 +389,6 @@
           <button class="copy-button" type="button">Copy address</button>
         </article>
       </div>
-    </section>
   </main>
 
   <script>
