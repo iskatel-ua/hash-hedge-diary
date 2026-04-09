@@ -10,6 +10,9 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     if: github.actor != 'github-actions[bot]'
+    permissions:
+      contents: write
+      pull-requests: write
     
     steps:
       - name: Checkout code
@@ -202,9 +205,12 @@ jobs:
 
       - name: Commit and push badge and README
         if: github.event_name == 'push' && always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}
           git add .github/badges/security-status.svg README.md
           git diff --staged --quiet && echo "No changes to commit" && exit 0
           git commit -m "chore: update VT badge and permalink [skip ci]"
