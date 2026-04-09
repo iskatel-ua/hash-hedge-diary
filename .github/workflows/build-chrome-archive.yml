@@ -1,0 +1,41 @@
+name: Build Chrome Archive
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'plugins/chrome/**'
+      - '.github/workflows/build-chrome-archive.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-archive:
+    runs-on: ubuntu-latest
+    if: github.actor != 'github-actions[bot]'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build hash-hedge-chrome.zip
+        run: |
+          set -e
+          rm -f hash-hedge-chrome.zip
+          cd plugins/chrome
+          zip -r ../../hash-hedge-chrome.zip .
+
+      - name: Commit archive
+        run: |
+          set -e
+          if git diff --quiet -- hash-hedge-chrome.zip; then
+            echo "Archive is up to date"
+            exit 0
+          fi
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add hash-hedge-chrome.zip
+          git commit -m "chore: update hash-hedge-chrome.zip [skip ci]"
+          git push

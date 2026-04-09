@@ -2,9 +2,11 @@
 
 [![VirusTotal Scan](https://github.com/iskatel-ua/hash-hedge-diary/actions/workflows/virustotal-scan.yml/badge.svg)](https://www.virustotal.com/gui/file/ba3341f01433bc805eb375bfee24338bc64c29b53b0342f7ead9bdf7f7837665)
 
+> Maintainers note: when updating the VirusTotal report URL, update the same URL in `pages/index.html` (VirusTotal button).
+
 Hash Hedge Diary is a Chrome extension that displays advanced trading statistics for your closed CFD positions on [hashhedge.com](https://hashhedge.com).
 
-![Demo](demo.jpg)
+![Demo](plugins/chrome/assets/images/demo.jpg)
 
 ---
 
@@ -36,7 +38,7 @@ The popup is available in **English** and **Russian** and remembers your languag
 1. Download or clone this repository to your computer.
 2. Open Chrome and navigate to `chrome://extensions`.
 3. Enable **Developer mode** (toggle in the top-right corner).
-4. Click **Load unpacked** and select the folder that contains `manifest.json` (the root of this repository).
+4. Click **Load unpacked** and select the `plugins/chrome` folder (it contains `plugins/chrome/manifest.json`).
 5. The extension icon will appear in the toolbar. Pin it for easy access.
 
 ### First use
@@ -90,6 +92,14 @@ To enable automated VirusTotal scanning on your fork:
 
 ---
 
+## Support
+
+If this extension is useful to you, you can open the support page with crypto wallet details here:
+
+- [Support Hash Hedge Diary](https://iskatel-ua.github.io/hash-hedge-diary/index.html)
+
+---
+
 ## Disclaimer
 
 **This extension is an independent, unofficial tool and is not affiliated with, endorsed by, or connected to HashHedge or its operators in any way.**
@@ -138,7 +148,7 @@ Hash Hedge Diary (дневник) — расширение для Chrome, кот
 1. Скачайте или склонируйте репозиторий на компьютер.
 2. Откройте Chrome и перейдите на страницу `chrome://extensions`.
 3. Включите **Режим разработчика** (переключатель в правом верхнем углу).
-4. Нажмите **Загрузить распакованное** и выберите папку, содержащую файл `manifest.json` (корень репозитория).
+4. Нажмите **Загрузить распакованное** и выберите папку `plugins/chrome` (в ней находится `plugins/chrome/manifest.json`).
 5. Значок расширения появится на панели инструментов. Закрепите его для удобного доступа.
 
 ### Первый запуск
@@ -157,6 +167,14 @@ Hash Hedge Diary (дневник) — расширение для Chrome, кот
 | `webRequest` | Пассивный перехват заголовков авторизации из запросов страницы к `cb.hashhedge.com`. Данные никуда не передаются. |
 | `storage` | Хранит перехваченные заголовки в сессионном хранилище и сохраняет выбор языка. |
 | `cookies` | Используется как резервный способ авторизации, если заголовки ещё не получены. |
+
+---
+
+## Поддержка
+
+Если расширение вам полезно, страница поддержки с реквизитами крипто-кошельков доступна здесь:
+
+- [Поддержать Hash Hedge Diary](https://iskatel-ua.github.io/hash-hedge-diary/index.html)
 
 ---
 

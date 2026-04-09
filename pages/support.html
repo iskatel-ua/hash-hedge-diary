@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Support Hash Hedge Diary</title>
+  <style>
+    :root {
+      --bg: #07110c;
+      --panel: rgba(10, 20, 15, 0.88);
+      --panel-border: rgba(0, 255, 136, 0.2);
+      --text: #ebfff4;
+      --muted: #95bca4;
+      --accent: #00ff88;
+      --accent-soft: rgba(0, 255, 136, 0.1);
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
+      --font: 'JetBrains Mono', 'Fira Mono', 'Consolas', monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font);
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(0, 255, 136, 0.12), transparent 32%),
+        radial-gradient(circle at bottom right, rgba(0, 255, 136, 0.08), transparent 30%),
+        linear-gradient(160deg, #040806 0%, #09130d 45%, #040806 100%);
+    }
+
+    main {
+      width: min(980px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 56px 0 72px;
+    }
+
+    .hero {
+      padding: 32px;
+      border: 1px solid var(--panel-border);
+      border-radius: 24px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 22px;
+    }
+
+    .brand__logo {
+      width: 54px;
+      height: 54px;
+      display: block;
+    }
+
+    .brand__name {
+      margin: 0;
+      font-size: 14px;
+      color: var(--text);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 18px;
+      padding: 6px 10px;
+      border: 1px solid var(--panel-border);
+      border-radius: 999px;
+      color: var(--accent);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      background: var(--accent-soft);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(32px, 6vw, 54px);
+      line-height: 1.02;
+    }
+
+    .lead {
+      margin: 0;
+      max-width: 720px;
+      color: var(--muted);
+      line-height: 1.7;
+      font-size: 15px;
+    }
+
+    .notice {
+      margin-top: 22px;
+      padding: 14px 16px;
+      border-left: 3px solid var(--accent);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .quick-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(220px, 1fr));
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .quick-action {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 6px;
+      min-height: 104px;
+      padding: 16px 18px;
+      border: 1px solid var(--panel-border);
+      border-radius: 16px;
+      background: linear-gradient(140deg, rgba(0, 255, 136, 0.13), rgba(0, 255, 136, 0.03));
+      color: var(--text);
+      text-decoration: none;
+      transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+    }
+
+    .quick-action:hover,
+    .quick-action:focus-visible {
+      border-color: var(--accent);
+      transform: translateY(-1px);
+      background: linear-gradient(140deg, rgba(0, 255, 136, 0.2), rgba(0, 255, 136, 0.05));
+      outline: none;
+    }
+
+    .quick-action__title {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .quick-action__sub {
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
+    .wallet-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin-top: 24px;
+    }
+
+    .wallet-card {
+      padding: 18px;
+      border: 1px solid var(--panel-border);
+      border-radius: 18px;
+      background: rgba(7, 18, 13, 0.86);
+    }
+
+    .wallet-card h2 {
+      margin: 0 0 10px;
+      font-size: 15px;
+      color: var(--accent);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .wallet-card p {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .wallet-address {
+      display: block;
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.6;
+      word-break: break-all;
+    }
+
+    .wallet-meta {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .copy-button {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border: 1px solid var(--panel-border);
+      border-radius: 12px;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      cursor: pointer;
+      transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+    }
+
+    .copy-button:hover,
+    .copy-button:focus-visible {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--accent-soft);
+      outline: none;
+    }
+
+    .footer {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    code {
+      font-family: inherit;
+      color: var(--accent);
+    }
+
+    @media (max-width: 640px) {
+      main {
+        width: min(100%, calc(100% - 20px));
+        padding: 20px 0 28px;
+      }
+
+      .hero {
+        padding: 20px;
+        border-radius: 18px;
+      }
+
+      .quick-actions {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <div class="brand">
+        <img class="brand__logo" src="assets/images/logo.png" alt="Hash Hedge Diary logo" />
+        <h1 class="brand__name">Hash Hedge Diary</h1>
+      </div>
+      <p class="lead">
+        If Hash Hedge Diary saves you time or helps you review your trading data faster,
+        you can support future development here.
+      </p>
+      <div class="notice">
+        Thank you for supporting my work—it helps me keep creating and improving my projects.
+      </div>
+
+      <div class="quick-actions">
+        <a
+          class="quick-action"
+          href="https://github.com/iskatel-ua/hash-hedge-diary/archive/refs/heads/master.zip"
+          target="_blank"
+          rel="noopener noreferrer"
+          download
+        >
+          <span class="quick-action__title">Download</span>
+          <span class="quick-action__sub">Chrome extension</span>
+        </a>
+        <!-- Keep this URL synchronized with the VirusTotal link in README badge. -->
+        <a
+          class="quick-action"
+          href="https://www.virustotal.com/gui/file/4a2741576d4f9e02778ae6e1f4f548701343e2bdf463d330109ac611dbabb673"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <span class="quick-action__title">VirusTotal</span>
+          <span class="quick-action__sub">Scan for viruses</span>
+        </a>
+      </div>
+
+      <div class="wallet-grid">
+        <article class="wallet-card">
+          <h2>Bitcoin</h2>
+          <p>Main BTC wallet for direct support.</p>
+          <span class="wallet-address" data-copy-value="REPLACE_WITH_BTC_WALLET">REPLACE_WITH_BTC_WALLET</span>
+          <div class="wallet-meta">Network: BTC</div>
+          <button class="copy-button" type="button">Copy address</button>
+        </article>
+
+        <article class="wallet-card">
+          <h2>Ethereum / USDT ERC20</h2>
+          <p>Use this address for ETH or ERC20.</p>
+          <span class="wallet-address" data-copy-value="REPLACE_WITH_ETH_WALLET">REPLACE_WITH_ETH_WALLET</span>
+          <div class="wallet-meta">Network: Ethereum (ERC20)</div>
+          <button class="copy-button" type="button">Copy address</button>
+        </article>
+
+        <article class="wallet-card">
+          <h2>SOLANA</h2>
+          <p>Use this address for SOL.</p>
+          <span class="wallet-address" data-copy-value="REPLACE_WITH_SOL_WALLET">REPLACE_WITH_SOL_WALLET</span>
+          <div class="wallet-meta">Network: Solana (SOL)</div>
+          <button class="copy-button" type="button">Copy address</button>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    for (const button of document.querySelectorAll('.copy-button')) {
+      button.addEventListener('click', async () => {
+        const card = button.closest('.wallet-card');
+        const address = card?.querySelector('.wallet-address')?.dataset.copyValue || '';
+
+        try {
+          await navigator.clipboard.writeText(address);
+          button.textContent = 'Copied';
+          setTimeout(() => {
+            button.textContent = 'Copy address';
+          }, 1200);
+        } catch (_) {
+          button.textContent = 'Copy failed';
+          setTimeout(() => {
+            button.textContent = 'Copy address';
+          }, 1200);
+        }
+      });
+    }
+  </script>
+</body>
+</html>

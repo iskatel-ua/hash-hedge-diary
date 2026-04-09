@@ -30,10 +30,10 @@ jobs:
       - name: Create archive for scanning
         run: |
           # Get version from manifest.json
-          VERSION=$(python -c "import json; print(json.load(open('manifest.json'))['version'])")
+          VERSION=$(python -c "import json; print(json.load(open('plugins/chrome/manifest.json'))['version'])")
           # Create zip archive excluding unnecessary files
           zip -r hash-hadge-$VERSION.zip . \
-            -x ".git/*" ".github/*" "node_modules/*" "*.zip" ".gitignore" "demo.jpg"
+            -x ".git/*" ".github/*" "node_modules/*" "*.zip" ".gitignore" "plugins/chrome/assets/images/demo.jpg"
           echo "SCAN_FILE=hash-hadge-$VERSION.zip" >> $GITHUB_ENV
       
       - name: Scan with VirusTotal

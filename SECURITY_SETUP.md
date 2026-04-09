@@ -104,17 +104,17 @@ GitHub Actions запускает workflow
 ## Что проверяется
 
 Файлы, которые включены в сканирование:
-- ✅ `background/` — Service Worker
-- ✅ `content/` — Content Scripts
-- ✅ `popup/` — UI файлы
-- ✅ `src/` — Исходный код
-- ✅ `manifest.json` — Конфигурация
+- ✅ `plugins/chrome/background/` — Service Worker
+- ✅ `plugins/chrome/content/` — Content Scripts
+- ✅ `plugins/chrome/popup/` — UI файлы
+- ✅ `plugins/chrome/src/` — Исходный код
+- ✅ `plugins/chrome/manifest.json` — Конфигурация
 
 Не сканируются (исключены):
 - ❌ `.git/` — История Git
 - ❌ `.github/` — Конфигурация GitHub
 - ❌ `node_modules/` — Стороние пакеты
-- ❌ `demo.jpg` — Картинки
+- ❌ `plugins/chrome/assets/images/demo.jpg` — Картинки
 
 ## Безопасность
 

@@ -9,6 +9,8 @@ let lastUpdatedAt = null;
 const I18N = {
   en: {
     title: 'Hash Hedge Diary',
+    donateButton: 'Thank you',
+    donateTitle: 'Open support page',
     initialising: 'Initialising…',
     loading: 'Loading…',
     updated: 'Updated',
@@ -47,6 +49,8 @@ const I18N = {
   },
   ru: {
     title: 'Hash Hedge Diary',
+    donateButton: 'Thank you',
+    donateTitle: 'Открыть страницу поддержки',
     initialising: 'Инициализация…',
     loading: 'Загрузка…',
     updated: 'Обновлено',
@@ -156,6 +160,7 @@ const btnRefresh  = document.getElementById('btnRefresh');
 const tradeCount  = document.getElementById('tradeCount');
 const headerTitle = document.querySelector('.header__title');
 const btnLang = document.getElementById('btnLang');
+const btnDonate = document.getElementById('btnDonate');
 
 // ── Status helpers ─────────────────────────────────────────────────
 function setStatus(state, text) {
@@ -188,6 +193,11 @@ function applyStaticTexts() {
   btnLang.title = t('switchLangTitle');
   btnLang.classList.toggle('btn-lang--ru', locale === 'ru');
   btnLang.classList.toggle('btn-lang--en', locale === 'en');
+  if (btnDonate) {
+    btnDonate.textContent = t('donateButton');
+    btnDonate.title = t('donateTitle');
+    btnDonate.setAttribute('aria-label', t('donateTitle'));
+  }
   setStatus('loading', t('initialising'));
 }
 
