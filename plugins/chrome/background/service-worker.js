@@ -20,6 +20,7 @@ import { applyAll }       from '../src/filters/registry.js';
 
 // ── Register metrics (order = display order in popup) ──────────────────────
 import winRate        from '../src/metrics/winRate.js';
+import hourlyWinRate  from '../src/metrics/hourlyWinRate.js';
 import directionCount from '../src/metrics/directionCount.js';
 import averagePnl     from '../src/metrics/averagePnl.js';
 import medianPnl      from '../src/metrics/medianPnl.js';
@@ -36,6 +37,7 @@ registerMetric(roi);
 registerMetric(recoveryFactor);
 registerMetric(bestDays);
 registerMetric(avgHoldTime);
+registerMetric(hourlyWinRate);
 
 // ── Register filters (none yet — skeleton is ready in filters/registry.js) ─
 // import dateRangeFilter from '../src/filters/dateRange.js';

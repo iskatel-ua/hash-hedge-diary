@@ -305,6 +305,88 @@ body {
   text-align: right;
 }
 
+/* ── Hourly win-rate chart ───────────────────────────────────────── */
+.hourly-chart {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  padding-top: 2px;
+}
+
+.hourly-chart__body {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.hourly-chart__scale {
+  width: 28px;
+  height: 84px;
+  display: grid;
+  grid-template-rows: 1fr 1fr 1fr;
+  align-items: center;
+  justify-items: end;
+}
+
+.hourly-chart__scale-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  line-height: 1;
+}
+
+.hourly-chart__bars {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  gap: 2px;
+  align-items: end;
+}
+
+.hourly-chart__col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.hourly-chart__stem {
+  width: 100%;
+  height: 84px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  border-left: 1px solid rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid rgba(168, 183, 199, 0.35);
+  overflow: hidden;
+}
+
+.hourly-chart__fill {
+  width: 70%;
+  margin: 0 auto;
+}
+
+.hourly-chart__fill--win {
+  background: var(--positive);
+  border-radius: 2px 2px 0 0;
+}
+
+.hourly-chart__fill--loss {
+  background: var(--negative);
+  border-radius: 2px 2px 0 0;
+}
+
+.hourly-chart__label {
+  font-size: 9px;
+  color: var(--text-dim);
+}
+
+.hourly-chart__col--empty .hourly-chart__label {
+  opacity: 0.55;
+}
+
 /* ── Skeleton loading ────────────────────────────────────────────── */
 .skeleton {
   background: linear-gradient(90deg, var(--surface) 25%, var(--surface-2) 50%, var(--surface) 75%);

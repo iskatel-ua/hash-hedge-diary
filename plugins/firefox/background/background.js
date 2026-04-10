@@ -193,6 +193,22 @@ function getDow(trade) {
   return isNaN(d.getTime()) ? null : d.getUTCDay();
 }
 
+function getOpenHourLocal(trade) {
+  const raw = trade.createdDate ?? trade.openTime ?? trade.createTime ?? trade.ctime ?? trade.tradeTime;
+  if (raw == null) return null;
+  const ts = Number(raw);
+  const d = Number.isFinite(ts) && ts > 1e12
+    ? new Date(ts)
+    : Number.isFinite(ts) && ts > 1e6
+      ? new Date(ts * 1000)
+      : new Date(raw);
+  return isNaN(d.getTime()) ? null : d.getHours();
+}
+
+function formatHour(hour) {
+  return String(hour).padStart(2, '0');
+}
+
 // ── Metric definitions (same as Chrome) ───────────────────────────────────
 
 const _metrics = [
@@ -208,6 +224,83 @@ const _metrics = [
         display: `${rate.toFixed(2)}%`,
         status: rate >= 50 ? 'positive' : 'negative',
         sub: `${wins} W / ${losses} L`,
+      };
+    },
+  },
+  {
+    id: 'hourlyWinRate', label: 'Hourly Win Rate',
+    compute(trades) {
+      const stats = Array.from({ length: 24 }, () => ({ total: 0, wins: 0 }));
+
+      for (const trade of trades) {
+        const hour = getOpenHourLocal(trade);
+        if (hour === null) continue;
+        stats[hour].total += 1;
+        if (isWin(trade)) stats[hour].wins += 1;
+      }
+
+      const active = stats
+        .map((s, hour) => ({
+          hour,
+          total: s.total,
+          wins: s.wins,
+          rate: s.total > 0 ? (s.wins / s.total) * 100 : null,
+        }))
+        .filter(x => x.rate !== null);
+
+      if (!active.length) {
+        return {
+          value: null,
+          display: 'N/A',
+          status: 'neutral',
+          sub: 'No time data',
+          bars: Array.from({ length: 24 }, (_, hour) => ({
+            hour,
+            hourLabel: formatHour(hour),
+            hasData: false,
+            winPct: 0,
+            lossPct: 0,
+            status: 'neutral',
+          })),
+        };
+      }
+
+      const bars = stats.map((s, hour) => {
+        if (s.total === 0) {
+          return {
+            hour,
+            hourLabel: formatHour(hour),
+            hasData: false,
+            winPct: 0,
+            lossPct: 0,
+            status: 'neutral',
+          };
+        }
+
+        const rate = (s.wins / s.total) * 100;
+        return {
+          hour,
+          hourLabel: formatHour(hour),
+          hasData: true,
+          rate,
+          winPct: rate,
+          lossPct: 100 - rate,
+          status: rate > 50 ? 'positive' : rate < 50 ? 'negative' : 'neutral',
+        };
+      });
+
+      const best = active.reduce(
+        (acc, cur) => ((cur.rate ?? -Infinity) > (acc.rate ?? -Infinity) ? cur : acc),
+        active[0]
+      );
+      const bestRate = best.rate ?? 50;
+
+      return {
+        value: bestRate,
+        display: `${formatHour(best.hour)}:00 - ${bestRate.toFixed(1)}%`,
+        status: bestRate > 50 ? 'positive' : bestRate < 50 ? 'negative' : 'neutral',
+        sub: null,
+        bars,
       };
     },
   },
@@ -352,7 +445,10 @@ const _metrics = [
 ];
 
 function computeAll(trades) {
-  return _metrics.map(metric => {
+  return _metrics
+    .slice()
+    .sort((a, b) => Number(a.id === 'hourlyWinRate') - Number(b.id === 'hourlyWinRate'))
+    .map(metric => {
     try {
       const result = metric.compute(trades);
       return {

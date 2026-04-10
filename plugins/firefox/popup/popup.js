@@ -28,6 +28,7 @@ const I18N = {
     dow: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
     metricLabels: {
       winRate: 'Win Rate',
+      hourlyWinRate: 'Hourly Win Rate (open time)',
       directionCount: 'Direction Split',
       averagePnl: 'Avg PnL',
       medianPnl: 'Median PnL',
@@ -38,6 +39,7 @@ const I18N = {
     },
     metricHelp: {
       winRate: 'Share of profitable trades. Formula: wins / total trades * 100%.',
+      hourlyWinRate: 'Hourly win rate grouped by trade open hour in your browser local time. Each bar is split into profitable and unprofitable trade share, together making 100%.',
       directionCount: 'Number of trades by direction: LONG vs SHORT.',
       averagePnl: 'Mean profit/loss per trade in USDT.',
       medianPnl: 'Middle PnL value after sorting trades by PnL; less sensitive to outliers.',
@@ -68,6 +70,7 @@ const I18N = {
     dow: ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'],
     metricLabels: {
       winRate: 'Винрейт',
+      hourlyWinRate: 'Винрейт по часам (время открытия)',
       directionCount: 'Распределение направлений',
       averagePnl: 'Средний PnL',
       medianPnl: 'Медиана PnL',
@@ -78,6 +81,7 @@ const I18N = {
     },
     metricHelp: {
       winRate: 'Доля прибыльных сделок. Формула: выигрыши / все сделки * 100%.',
+      hourlyWinRate: 'Винрейт по часу открытия сделки в локальном времени браузера. Каждый столбец разделён на долю прибыльных и убыточных сделок, вместе они дают 100%.',
       directionCount: 'Количество сделок по направлениям: LONG и SHORT.',
       averagePnl: 'Средний результат (прибыль/убыток) на одну сделку в USDT.',
       medianPnl: 'Среднее по позиции значение PnL после сортировки; менее чувствительно к выбросам.',
@@ -178,7 +182,7 @@ function hideError() {
 
 // ── Metric card rendering ──────────────────────────────────────────
 
-const WIDE_METRICS = new Set([]);
+const WIDE_METRICS = new Set(['hourlyWinRate']);
 
 function applyStaticTexts() {
   document.documentElement.lang = locale;
@@ -227,14 +231,16 @@ function renderMetrics(metrics, filteredCount, rawCount) {
     value.className = `metric-card__value ${m.status}`;
     value.textContent = m.display;
 
-    if (!m.bars) {
+    const isHourlyWinRate = m.id === 'hourlyWinRate' && Array.isArray(m.bars);
+
+    if (!m.bars || isHourlyWinRate) {
       card.appendChild(header);
     }
 
     const content = document.createElement('div');
     content.className = 'metric-card__content';
 
-    if (m.bars) {
+    if (m.bars && !isHourlyWinRate) {
       // Bar-chart render (e.g. bestDays)
       const maxPct = Math.max(...m.bars.map(b => b.pct ?? 0)) || 1;
       const dowLabels = I18N[locale].dow;
@@ -260,6 +266,72 @@ function renderMetrics(metrics, filteredCount, rawCount) {
         row.appendChild(pctLbl);
         chart.appendChild(row);
       }
+      content.appendChild(chart);
+    } else if (isHourlyWinRate) {
+      const chart = document.createElement('div');
+      chart.className = 'hourly-chart';
+
+      const body = document.createElement('div');
+      body.className = 'hourly-chart__body';
+
+      const scale = document.createElement('div');
+      scale.className = 'hourly-chart__scale';
+
+      for (const mark of ['100%', '50%', '0%']) {
+        const markEl = document.createElement('span');
+        markEl.className = 'hourly-chart__scale-label';
+        markEl.textContent = mark;
+        scale.appendChild(markEl);
+      }
+
+      const bars = document.createElement('div');
+      bars.className = 'hourly-chart__bars';
+
+      for (const bar of m.bars) {
+        const col = document.createElement('div');
+        col.className = 'hourly-chart__col';
+
+        const stem = document.createElement('div');
+        stem.className = 'hourly-chart__stem';
+
+        if (bar.hasData) {
+          const derivedRate = Number.isFinite(Number(bar.rate)) ? Number(bar.rate) : null;
+          const winPct = Number.isFinite(Number(bar.winPct))
+            ? Number(bar.winPct)
+            : derivedRate !== null
+              ? derivedRate
+              : 0;
+          const lossPct = Number.isFinite(Number(bar.lossPct))
+            ? Number(bar.lossPct)
+            : Math.max(0, 100 - winPct);
+
+          const lossFill = document.createElement('div');
+          lossFill.className = 'hourly-chart__fill hourly-chart__fill--loss';
+          lossFill.style.height = `${lossPct.toFixed(2)}%`;
+
+          const winFill = document.createElement('div');
+          winFill.className = 'hourly-chart__fill hourly-chart__fill--win';
+          winFill.style.height = `${winPct.toFixed(2)}%`;
+
+          stem.appendChild(lossFill);
+          stem.appendChild(winFill);
+        } else {
+          col.classList.add('hourly-chart__col--empty');
+        }
+
+        const lbl = document.createElement('span');
+        lbl.className = 'hourly-chart__label';
+        lbl.textContent = bar.hourLabel ?? '--';
+
+        col.appendChild(stem);
+        col.appendChild(lbl);
+
+        bars.appendChild(col);
+      }
+
+      body.appendChild(scale);
+      body.appendChild(bars);
+      chart.appendChild(body);
       content.appendChild(chart);
     } else {
       content.appendChild(value);
