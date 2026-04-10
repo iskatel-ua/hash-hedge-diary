@@ -208,13 +208,25 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          BRANCH="${GITHUB_REF_NAME}"
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}
+          git fetch origin "${BRANCH}"
+          git checkout "${BRANCH}" || git checkout -b "${BRANCH}" "origin/${BRANCH}"
           git add .github/badges/security-status.svg README.md
           git diff --staged --quiet && echo "No changes to commit" && exit 0
           git commit -m "chore: update VT badge and permalink [skip ci]"
-          git push
+          for attempt in 1 2 3; do
+            git pull --rebase origin "${BRANCH}" || { git rebase --abort || true; exit 1; }
+            if git push origin "HEAD:${BRANCH}"; then
+              echo "Push succeeded on attempt ${attempt}"
+              exit 0
+            fi
+            echo "Push rejected on attempt ${attempt}, retrying..."
+          done
+          echo "Push failed after 3 attempts"
+          exit 1
 
       - name: Comment PR with results
         if: github.event_name == 'pull_request' && always()
