@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Background Service Worker (MV3)
  *
@@ -14,7 +15,14 @@
  * To add a filter: import it and call registerFilter().
  */
 
-import { API_URL, extractTrades } from '../src/api/client.js';
+import {
+  API_URL,
+  OPEN_POSITIONS_URL,
+  PUBLIC_INSTRUMENTS_URL,
+  extractOpenPositions,
+  extractPublicInstruments,
+  extractTrades,
+} from '../src/api/client.js';
 import { registerMetric, computeAll } from '../src/metrics/registry.js';
 import { applyAll }       from '../src/filters/registry.js';
 
@@ -69,6 +77,99 @@ function t(locale, key, ...args) {
   const dict = MESSAGES[l] || MESSAGES.en;
   const msg = dict[key] ?? MESSAGES.en[key];
   return typeof msg === 'function' ? msg(...args) : msg;
+}
+
+const PUBLIC_INSTRUMENTS_TTL_MS = 60_000;
+const publicInstrumentsCache = {
+  fetchedAt: 0,
+  byKey: null,
+  pending: null,
+};
+
+function normalizeInstrumentKeys(instrument) {
+  const keys = new Set();
+  const name = String(instrument?.name || '').trim().toUpperCase();
+  const base = String(instrument?.base || '').trim().toUpperCase();
+  const symbol = String(instrument?.symbol || '').trim().toUpperCase();
+
+  if (name) keys.add(name);
+  if (base) keys.add(base);
+  if (symbol) keys.add(symbol);
+  return [...keys];
+}
+
+function getPositionInstrumentKeys(position) {
+  const keys = new Set();
+  const instrument = String(position?.instrument || '').trim().toUpperCase();
+  const quote = String(position?.quote || 'usdt').trim().toUpperCase();
+
+  if (instrument) {
+    keys.add(instrument);
+    keys.add(`${instrument}${quote}`);
+  }
+
+  return [...keys];
+}
+
+async function getPublicInstrumentsMap() {
+  const now = Date.now();
+  if (publicInstrumentsCache.byKey && now - publicInstrumentsCache.fetchedAt < PUBLIC_INSTRUMENTS_TTL_MS) {
+    return publicInstrumentsCache.byKey;
+  }
+
+  if (publicInstrumentsCache.pending) {
+    return publicInstrumentsCache.pending;
+  }
+
+  publicInstrumentsCache.pending = (async () => {
+    const response = await fetch(PUBLIC_INSTRUMENTS_URL);
+    if (!response.ok) {
+      throw new Error(`Public instruments request failed: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const instruments = extractPublicInstruments(data);
+    const byKey = new Map();
+
+    for (const instrument of instruments) {
+      for (const key of normalizeInstrumentKeys(instrument)) {
+        byKey.set(key, instrument);
+      }
+    }
+
+    publicInstrumentsCache.byKey = byKey;
+    publicInstrumentsCache.fetchedAt = Date.now();
+    return byKey;
+  })();
+
+  try {
+    return await publicInstrumentsCache.pending;
+  } finally {
+    publicInstrumentsCache.pending = null;
+  }
+}
+
+function enrichOpenPositionsWithPrices(positions, instrumentsByKey) {
+  if (!Array.isArray(positions) || !positions.length || !instrumentsByKey) {
+    return Array.isArray(positions) ? positions : [];
+  }
+
+  return positions.map((position) => {
+    const match = getPositionInstrumentKeys(position)
+      .map((key) => instrumentsByKey.get(key))
+      .find(Boolean);
+
+    if (!match) {
+      return position;
+    }
+
+    return {
+      ...position,
+      currentPrice: match.markPrice ?? match.lastPrice ?? null,
+      markPrice: match.markPrice ?? null,
+      lastPrice: match.lastPrice ?? null,
+    };
+  });
 }
 
 // ── Passive webRequest header capture ─────────────────────────────────────
@@ -163,16 +264,44 @@ async function handleFetchTrades(activeFilters, locale) {
       };
     }
 
-    const res = await fetch(API_URL, { credentials: 'include', headers });
-    if (res.ok) {
-      const data      = await res.json();
+    const [tradesRes, openPositionsRes, publicInstrumentsResult] = await Promise.all([
+      fetch(API_URL, { credentials: 'include', headers }),
+      fetch(OPEN_POSITIONS_URL, { credentials: 'include', headers }),
+      getPublicInstrumentsMap().catch((error) => {
+        console.warn('[HashHedge] Public instruments request failed:', error);
+        return null;
+      }),
+    ]);
+
+    if (tradesRes.ok) {
+      const data = await tradesRes.json();
       const rawTrades = extractTrades(data);
-      const trades    = applyAll(rawTrades, activeFilters);
-      const metrics   = computeAll(trades, activeFilters);
-      return { ok: true, metrics, tradeCount: rawTrades.length, filteredCount: trades.length };
+      const trades = applyAll(rawTrades, activeFilters);
+      const metrics = computeAll(trades, activeFilters);
+
+      let userPositions = [];
+      if (openPositionsRes.ok) {
+        try {
+          userPositions = extractOpenPositions(await openPositionsRes.json());
+          userPositions = enrichOpenPositionsWithPrices(userPositions, publicInstrumentsResult);
+        } catch (openPositionsError) {
+          console.warn('[HashHedge] Failed to parse open positions:', openPositionsError);
+        }
+      } else {
+        console.warn('[HashHedge] Open positions request failed:', openPositionsRes.status, openPositionsRes.statusText);
+      }
+
+      return {
+        ok: true,
+        metrics,
+        userPositions,
+        openPositions: userPositions,
+        tradeCount: rawTrades.length,
+        filteredCount: trades.length,
+      };
     }
 
-    return { ok: false, error: t(locale, 'apiAuthHint', res.status, res.statusText) };
+    return { ok: false, error: t(locale, 'apiAuthHint', tradesRes.status, tradesRes.statusText) };
   } catch (e) {
     console.error('[HashHedge] handleFetchTrades error:', e);
     return { ok: false, error: e?.message || t(locale, 'unknownError') };
