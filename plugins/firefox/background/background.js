@@ -17,7 +17,110 @@ const API_URL = 'https://cb.hashhedge.com/v1/cfd/trade/finish?page=1&pageSize=10
 // Storage for auth headers
 let capturedHeaders = {};
 let cachedToken = null;
-let lastReloadAttempt = 0;
+const AUTH_WAIT_TIMEOUT_MS = 12_000;
+const TAB_RELOAD_TIMEOUT_MS = 15_000;
+const authStateWaiters = new Set();
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function hasAuthHeaders(headers) {
+  return !!headers && Object.keys(headers).length > 0;
+}
+
+async function buildAuthHeaders() {
+  if (hasAuthHeaders(capturedHeaders)) {
+    return { ...capturedHeaders };
+  }
+
+  const token = cachedToken || (await getBearerFromCookies());
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function notifyAuthStateWaiters() {
+  for (const waiter of authStateWaiters) {
+    waiter();
+  }
+}
+
+async function waitForAuthHeaders(timeoutMs = AUTH_WAIT_TIMEOUT_MS) {
+  const existing = await buildAuthHeaders();
+  if (hasAuthHeaders(existing)) {
+    return existing;
+  }
+
+  return await new Promise((resolve) => {
+    let settled = false;
+
+    const finish = (headers = {}) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      authStateWaiters.delete(checkAuthHeaders);
+      resolve(headers);
+    };
+
+    async function checkAuthHeaders() {
+      try {
+        const headers = await buildAuthHeaders();
+        if (hasAuthHeaders(headers)) {
+          finish(headers);
+        }
+      } catch (error) {
+        console.warn('[HashHedge] Failed to re-check auth headers:', error);
+      }
+    }
+
+    authStateWaiters.add(checkAuthHeaders);
+    const timeoutId = setTimeout(() => finish({}), timeoutMs);
+    void checkAuthHeaders();
+  });
+}
+
+async function waitForTabReload(tabId, timeoutMs = TAB_RELOAD_TIMEOUT_MS) {
+  return await new Promise((resolve) => {
+    let settled = false;
+
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      browser.tabs.onUpdated.removeListener(onUpdated);
+      resolve(result);
+    };
+
+    const onUpdated = (updatedTabId, changeInfo) => {
+      if (updatedTabId !== tabId) return;
+      if (changeInfo.status === 'complete') {
+        finish(true);
+      }
+    };
+
+    browser.tabs.onUpdated.addListener(onUpdated);
+    const timeoutId = setTimeout(() => finish(false), timeoutMs);
+  });
+}
+
+async function refreshAuthContext(waitForHeaders = false) {
+  const reloadedTradeTab = await reloadTradePageTab();
+
+  if (!reloadedTradeTab) {
+    return await buildAuthHeaders();
+  }
+
+  if (waitForHeaders) {
+    return await waitForAuthHeaders();
+  }
+
+  await delay(1500);
+  return await buildAuthHeaders();
+}
+
+async function fetchTradeResources(headers) {
+  const res = await fetch(API_URL, { credentials: 'include', headers });
+  return { res };
+}
 
 // ── Passive webRequest header capture ─────────────────────────────────────
 // Intercepts requests the PAGE makes to the API and captures auth headers.
@@ -45,6 +148,7 @@ browser.webRequest.onSendHeaders.addListener(
     if (Object.keys(captured).length) {
       capturedHeaders = captured;
       console.debug('[HashHedge] Captured auth headers from page request:', Object.keys(captured));
+      notifyAuthStateWaiters();
     }
   },
   { urls: ['https://cb.hashhedge.com/*'] },
@@ -58,6 +162,7 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'STORE_TOKEN') {
     cachedToken = request.token;
     console.debug('[HashHedge] Token stored:', request.token ? 'OK' : 'EMPTY');
+    notifyAuthStateWaiters();
     sendResponse({ success: true });
   }
   
@@ -527,6 +632,10 @@ async function reloadTradePageTab() {
     
     if (tabs.length > 0) {
       await browser.tabs.reload(tabs[0].id);
+      const reloaded = await waitForTabReload(tabs[0].id);
+      if (!reloaded) {
+        console.warn('[HashHedge] Timed out waiting for trade tab reload');
+      }
       console.log('[HashHedge] Reloaded trade page tab');
       return true;
     }
@@ -540,35 +649,26 @@ async function reloadTradePageTab() {
 
 async function handleFetchTrades(activeFilters, locale) {
   try {
-    let headers = { ...capturedHeaders };
+    let headers = await buildAuthHeaders();
 
-    if (!Object.keys(headers).length) {
-      const token = cachedToken || (await getBearerFromCookies());
-      if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (!hasAuthHeaders(headers)) {
+      headers = await refreshAuthContext(true);
     }
 
-    if (!Object.keys(headers).length) {
-      // Auto-reload trade page once to help capture auth headers
-      const now = Date.now();
-      const alreadyAttempted = (now - lastReloadAttempt) < 5000;
-      
-      if (!alreadyAttempted) {
-        lastReloadAttempt = now;
-        await reloadTradePageTab();
-        
-        return {
-          ok: false,
-          error: msg(locale, 'noAuthHeaders'),
-          attemptedAutoReload: true,
-        };
-      }
-      
+    if (!hasAuthHeaders(headers)) {
       return { ok: false, error: msg(locale, 'noAuthHeaders') };
     }
 
     console.debug('[HashHedge] Fetching with headers:', Object.keys(headers));
 
-    const res = await fetch(API_URL, { credentials: 'include', headers });
+    let { res } = await fetchTradeResources(headers);
+
+    if (res.status === 401 || res.status === 403) {
+      headers = await refreshAuthContext(false);
+      if (hasAuthHeaders(headers)) {
+        ({ res } = await fetchTradeResources(headers));
+      }
+    }
 
     if (res.ok) {
       const data = await res.json();

@@ -80,11 +80,123 @@ function t(locale, key, ...args) {
 }
 
 const PUBLIC_INSTRUMENTS_TTL_MS = 60_000;
+const AUTH_WAIT_TIMEOUT_MS = 12_000;
+const TAB_RELOAD_TIMEOUT_MS = 15_000;
 const publicInstrumentsCache = {
   fetchedAt: 0,
   byKey: null,
   pending: null,
 };
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function hasAuthHeaders(headers) {
+  return !!headers && Object.keys(headers).length > 0;
+}
+
+async function getAuthHeaders() {
+  const session = await chrome.storage.session.get(['capturedHeaders', 'authToken']);
+
+  if (hasAuthHeaders(session.capturedHeaders)) {
+    return { ...session.capturedHeaders };
+  }
+
+  const token = session.authToken || (await getBearerFromCookies());
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function waitForAuthHeaders(timeoutMs = AUTH_WAIT_TIMEOUT_MS) {
+  const existing = await getAuthHeaders();
+  if (hasAuthHeaders(existing)) {
+    return existing;
+  }
+
+  return await new Promise((resolve) => {
+    let settled = false;
+
+    const finish = (headers = {}) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      chrome.storage.onChanged.removeListener(onChanged);
+      resolve(headers);
+    };
+
+    async function checkAuthHeaders() {
+      try {
+        const headers = await getAuthHeaders();
+        if (hasAuthHeaders(headers)) {
+          finish(headers);
+        }
+      } catch (error) {
+        console.warn('[HashHedge] Failed to re-check auth headers:', error);
+      }
+    }
+
+    const onChanged = (_changes, areaName) => {
+      if (areaName !== 'session') return;
+      void checkAuthHeaders();
+    };
+
+    chrome.storage.onChanged.addListener(onChanged);
+    const timeoutId = setTimeout(() => finish({}), timeoutMs);
+    void checkAuthHeaders();
+  });
+}
+
+async function waitForTabReload(tabId, timeoutMs = TAB_RELOAD_TIMEOUT_MS) {
+  return await new Promise((resolve) => {
+    let settled = false;
+
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      resolve(result);
+    };
+
+    const onUpdated = (updatedTabId, changeInfo) => {
+      if (updatedTabId !== tabId) return;
+      if (changeInfo.status === 'complete') {
+        finish(true);
+      }
+    };
+
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    const timeoutId = setTimeout(() => finish(false), timeoutMs);
+  });
+}
+
+async function refreshAuthContext(waitForHeaders = false) {
+  const reloadedTradeTab = await reloadTradePageTab();
+
+  if (!reloadedTradeTab) {
+    return await getAuthHeaders();
+  }
+
+  if (waitForHeaders) {
+    return await waitForAuthHeaders();
+  }
+
+  await delay(1500);
+  return await getAuthHeaders();
+}
+
+async function fetchTradeResources(headers) {
+  const [tradesRes, openPositionsRes, publicInstrumentsResult] = await Promise.all([
+    fetch(API_URL, { credentials: 'include', headers }),
+    fetch(OPEN_POSITIONS_URL, { credentials: 'include', headers }),
+    getPublicInstrumentsMap().catch((error) => {
+      console.warn('[HashHedge] Public instruments request failed:', error);
+      return null;
+    }),
+  ]);
+
+  return { tradesRes, openPositionsRes, publicInstrumentsResult };
+}
 
 function normalizeInstrumentKeys(instrument) {
   const keys = new Set();
@@ -230,48 +342,27 @@ async function handleFetchTrades(activeFilters, locale) {
   // ── Build request headers ─────────────────────────────────────────────────
   // Priority: captured webRequest headers > Bearer token from localStorage/cookies
   try {
-    const session = await chrome.storage.session.get(['capturedHeaders', 'authToken', 'reloadAttempted']);
-    const headers = { ...(session.capturedHeaders || {}) };
+    let headers = await getAuthHeaders();
 
-    // If no captured headers yet, try Bearer token as fallback
-    if (!Object.keys(headers).length) {
-      const token = session.authToken || (await getBearerFromCookies());
-      if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (!hasAuthHeaders(headers)) {
+      headers = await refreshAuthContext(true);
     }
 
-    if (!Object.keys(headers).length) {
-      // Auto-reload trade page once to help capture auth headers
-      const alreadyAttempted = session.reloadAttempted 
-        ? (Date.now() - session.reloadAttempted < 5000) 
-        : false;
-      
-      if (!alreadyAttempted) {
-        await chrome.storage.session.set({ 
-          reloadAttempted: Date.now() 
-        });
-        await reloadTradePageTab();
-        
-        return {
-          ok: false,
-          error: t(locale, 'noAuthHeaders'),
-          attemptedAutoReload: true,
-        };
-      }
-      
+    if (!hasAuthHeaders(headers)) {
       return {
         ok: false,
         error: t(locale, 'noAuthHeaders'),
       };
     }
 
-    const [tradesRes, openPositionsRes, publicInstrumentsResult] = await Promise.all([
-      fetch(API_URL, { credentials: 'include', headers }),
-      fetch(OPEN_POSITIONS_URL, { credentials: 'include', headers }),
-      getPublicInstrumentsMap().catch((error) => {
-        console.warn('[HashHedge] Public instruments request failed:', error);
-        return null;
-      }),
-    ]);
+    let { tradesRes, openPositionsRes, publicInstrumentsResult } = await fetchTradeResources(headers);
+
+    if (tradesRes.status === 401 || tradesRes.status === 403) {
+      headers = await refreshAuthContext(false);
+      if (hasAuthHeaders(headers)) {
+        ({ tradesRes, openPositionsRes, publicInstrumentsResult } = await fetchTradeResources(headers));
+      }
+    }
 
     if (tradesRes.ok) {
       const data = await tradesRes.json();
@@ -317,6 +408,10 @@ async function reloadTradePageTab() {
     
     if (tabs.length > 0) {
       await chrome.tabs.reload(tabs[0].id);
+      const reloaded = await waitForTabReload(tabs[0].id);
+      if (!reloaded) {
+        console.warn('[HashHedge] Timed out waiting for trade tab reload');
+      }
       console.log('[HashHedge] Reloaded trade page tab');
       return true;
     }

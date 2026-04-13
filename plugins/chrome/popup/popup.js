@@ -633,11 +633,7 @@ function renderOpenPositions(openPositions) {
 }
 
 // ── Main load ──────────────────────────────────────────────────────
-async function loadData(activeFilters = {}, retryAfterMs = 0) {
-  if (retryAfterMs > 0) {
-    await new Promise(resolve => setTimeout(resolve, retryAfterMs));
-  }
-
+async function loadData(activeFilters = {}) {
   hideError();
   setStatus('loading', t('loading'));
   btnRefresh.disabled = true;
@@ -653,12 +649,6 @@ async function loadData(activeFilters = {}, retryAfterMs = 0) {
       throw new Error(t('noResponse'));
     }
     if (!response.ok) {
-      // If auto-reload was attempted, retry after a delay to allow auth headers to be captured
-      if (response.attemptedAutoReload) {
-        console.log('[HashHedge] Trade tab was auto-reloaded, retrying in 2s...');
-        return loadData(activeFilters, 2000);
-      }
-      
       throw new Error(response.error || t('unknownError'));
     }
 
