@@ -146,6 +146,31 @@ async function persistTradeDataCache() {
   });
 }
 
+async function getRefreshAlarmInfo() {
+  return await new Promise((resolve) => {
+    chrome.alarms.get(BACKGROUND_REFRESH_ALARM, (alarm) => {
+      resolve(alarm || null);
+    });
+  });
+}
+
+async function getRefreshStatus() {
+  const [alarm, defaultCacheEntry] = await Promise.all([
+    getRefreshAlarmInfo(),
+    getCachedTradeData(DEFAULT_FILTERS),
+  ]);
+
+  const lastUpdatedAt = defaultCacheEntry?.fetchedAt || null;
+  const nextRefreshAt = alarm?.scheduledTime || (lastUpdatedAt ? lastUpdatedAt + BACKGROUND_REFRESH_INTERVAL_MS : null);
+
+  return {
+    ok: true,
+    nextRefreshAt,
+    lastUpdatedAt,
+    refreshIntervalMs: BACKGROUND_REFRESH_INTERVAL_MS,
+  };
+}
+
 async function getCachedTradeData(activeFilters = DEFAULT_FILTERS) {
   const cache = await loadTradeDataCache();
   return cache[getCacheKey(activeFilters)] || null;
@@ -420,6 +445,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       handleFetchTrades(msg.filters || {}, msg.locale, normalizeRequestOptions(msg)).then(sendResponse);
       return true;
 
+    case 'GET_REFRESH_STATUS':
+      getRefreshStatus().then(sendResponse);
+      return true;
+
     default:
       break;
   }
@@ -537,7 +566,12 @@ async function handleFetchTrades(activeFilters, locale, options = {}) {
   return await pendingRequest;
 }
 
-function scheduleBackgroundRefresh() {
+async function scheduleBackgroundRefresh() {
+  const alarm = await getRefreshAlarmInfo();
+  if (alarm) {
+    return;
+  }
+
   chrome.alarms.create(BACKGROUND_REFRESH_ALARM, {
     periodInMinutes: BACKGROUND_REFRESH_INTERVAL_MINUTES,
   });
@@ -560,18 +594,18 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  scheduleBackgroundRefresh();
+  void scheduleBackgroundRefresh();
   void refreshDefaultTradeData('install');
 });
 
 if (chrome.runtime.onStartup) {
   chrome.runtime.onStartup.addListener(() => {
-    scheduleBackgroundRefresh();
+    void scheduleBackgroundRefresh();
     void refreshDefaultTradeData('startup');
   });
 }
 
-scheduleBackgroundRefresh();
+void scheduleBackgroundRefresh();
 void refreshDefaultTradeData('load');
 
 /** Reloads the trade page tab if it exists */

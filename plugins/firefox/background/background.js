@@ -87,6 +87,23 @@ async function persistTradeDataCache() {
   });
 }
 
+async function getRefreshStatus() {
+  const [alarm, defaultCacheEntry] = await Promise.all([
+    browser.alarms.get(BACKGROUND_REFRESH_ALARM),
+    getCachedTradeData(DEFAULT_FILTERS),
+  ]);
+
+  const lastUpdatedAt = defaultCacheEntry?.fetchedAt || null;
+  const nextRefreshAt = alarm?.scheduledTime || (lastUpdatedAt ? lastUpdatedAt + BACKGROUND_REFRESH_INTERVAL_MS : null);
+
+  return {
+    ok: true,
+    nextRefreshAt,
+    lastUpdatedAt,
+    refreshIntervalMs: BACKGROUND_REFRESH_INTERVAL_MS,
+  };
+}
+
 async function getCachedTradeData(activeFilters = DEFAULT_FILTERS) {
   const cache = await loadTradeDataCache();
   return cache[getCacheKey(activeFilters)] || null;
@@ -364,6 +381,11 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'FETCH_TRADES') {
     handleFetchTrades(request.filters || {}, request.locale, normalizeRequestOptions(request)).then(sendResponse);
     return true; // Keep channel open for async response
+  }
+
+  if (request.type === 'GET_REFRESH_STATUS') {
+    getRefreshStatus().then(sendResponse);
+    return true;
   }
 });
 
@@ -962,7 +984,12 @@ async function handleFetchTrades(activeFilters, locale, options = {}) {
   return await pendingRequest;
 }
 
-function scheduleBackgroundRefresh() {
+async function scheduleBackgroundRefresh() {
+  const alarm = await browser.alarms.get(BACKGROUND_REFRESH_ALARM);
+  if (alarm) {
+    return;
+  }
+
   browser.alarms.create(BACKGROUND_REFRESH_ALARM, {
     periodInMinutes: BACKGROUND_REFRESH_INTERVAL_MINUTES,
   });
@@ -985,18 +1012,18 @@ browser.alarms.onAlarm.addListener((alarm) => {
 });
 
 browser.runtime.onInstalled.addListener(() => {
-  scheduleBackgroundRefresh();
+  void scheduleBackgroundRefresh();
   void refreshDefaultTradeData('install');
 });
 
 if (browser.runtime.onStartup) {
   browser.runtime.onStartup.addListener(() => {
-    scheduleBackgroundRefresh();
+    void scheduleBackgroundRefresh();
     void refreshDefaultTradeData('startup');
   });
 }
 
-scheduleBackgroundRefresh();
+void scheduleBackgroundRefresh();
 void refreshDefaultTradeData('load');
 
 console.debug('[HashHedge] Firefox background script loaded');

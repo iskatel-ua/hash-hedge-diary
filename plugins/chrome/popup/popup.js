@@ -3,11 +3,16 @@
 
 const LOCALE_STORAGE_KEY = 'hhd_locale';
 const POPUP_AUTO_REFRESH_MS = 60_000;
+const BACKGROUND_REFRESH_INTERVAL_MS = 5 * 60_000;
 const POPUP_OPEN_REFRESH_GRACE_MS = 60_000;
 let locale = getInitialLocale();
 let lastRenderState = null;
 let activeTab = 'stats';
 let autoRefreshTimerId = null;
+let countdownTimerId = null;
+let lastUpdatedAtMs = null;
+let nextRefreshAtMs = null;
+let refreshStatusSyncInProgress = false;
 
 const I18N = {
   en: {
@@ -20,7 +25,7 @@ const I18N = {
     refresh: 'Refresh',
     tradesWord: 'trades',
     tabStats: 'Stats',
-    tabOpenDeals: 'Open deals',
+    tabOpenDeals: 'Positions',
     positionsEmpty: 'No open positions',
     positionsInstrument: 'Instrument',
     positionsVolume: 'Volume',
@@ -79,7 +84,7 @@ const I18N = {
     refresh: 'Обновить',
     tradesWord: 'сделок',
     tabStats: 'Статистика',
-    tabOpenDeals: 'Открытые сделки',
+    tabOpenDeals: 'Позиции',
     positionsEmpty: 'Открытых позиций нет',
     positionsInstrument: 'Инстр.',
     positionsVolume: 'Объём',
@@ -227,7 +232,8 @@ function applyStaticTexts() {
   document.documentElement.lang = locale;
   document.title = t('title');
   if (headerTitle) headerTitle.textContent = t('title');
-  btnRefresh.textContent = `↻ ${t('refresh')}`;
+  btnRefresh.setAttribute('aria-label', t('refresh'));
+  renderRefreshCountdown();
   btnLang.textContent = locale.toUpperCase();
   btnLang.title = t('switchLangTitle');
   btnLang.classList.toggle('btn-lang--ru', locale === 'ru');
@@ -246,6 +252,72 @@ function applyStaticTexts() {
   if (tabOpenDealsLabel) tabOpenDealsLabel.textContent = t('tabOpenDeals');
   if (positionsEmpty) positionsEmpty.textContent = t('positionsEmpty');
   setStatus('loading', t('initialising'));
+}
+
+function formatCountdown(ms) {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function getRemainingRefreshMs() {
+  if (Number.isFinite(nextRefreshAtMs)) {
+    return Math.max(0, nextRefreshAtMs - Date.now());
+  }
+
+  if (!Number.isFinite(lastUpdatedAtMs)) {
+    return BACKGROUND_REFRESH_INTERVAL_MS;
+  }
+
+  const elapsed = Date.now() - lastUpdatedAtMs;
+  return Math.max(0, BACKGROUND_REFRESH_INTERVAL_MS - elapsed);
+}
+
+function renderRefreshCountdown() {
+  btnRefresh.textContent = `↻ ${formatCountdown(getRemainingRefreshMs())}`;
+}
+
+async function syncRefreshStatus() {
+  if (refreshStatusSyncInProgress) {
+    return;
+  }
+
+  refreshStatusSyncInProgress = true;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'GET_REFRESH_STATUS' });
+    if (!response?.ok) {
+      return;
+    }
+
+    const nextRefreshAt = Number(response.nextRefreshAt);
+    nextRefreshAtMs = Number.isFinite(nextRefreshAt) ? nextRefreshAt : null;
+
+    const lastUpdatedAt = Number(response.lastUpdatedAt);
+    if (Number.isFinite(lastUpdatedAt)) {
+      lastUpdatedAtMs = lastUpdatedAt;
+    }
+
+    renderRefreshCountdown();
+  } catch (_) {
+    // Ignore status sync failures; countdown falls back to local estimate.
+  } finally {
+    refreshStatusSyncInProgress = false;
+  }
+}
+
+function startRefreshCountdown() {
+  if (countdownTimerId !== null) {
+    clearInterval(countdownTimerId);
+  }
+
+  renderRefreshCountdown();
+  countdownTimerId = setInterval(() => {
+    renderRefreshCountdown();
+    if (getRemainingRefreshMs() <= 0) {
+      void syncRefreshStatus();
+    }
+  }, 1000);
 }
 
 function renderMetrics(metrics, filteredCount, rawCount) {
@@ -679,6 +751,12 @@ async function loadData(activeFilters = {}, options = {}) {
       filteredCount: response.filteredCount,
       rawCount: response.tradeCount,
     };
+    lastUpdatedAtMs = Number(response.lastUpdatedAt);
+    if (!Number.isFinite(lastUpdatedAtMs)) {
+      lastUpdatedAtMs = Date.now();
+    }
+    renderRefreshCountdown();
+    void syncRefreshStatus();
     setStatus('ok', `${t('refresh')}`);
   } catch (e) {
     if (silent) {
@@ -740,11 +818,16 @@ if (btnReloadTab) {
 }
 btnRefresh.addEventListener('click', () => loadData({}, { forceRefresh: true, minFreshMs: 0 }));
 document.addEventListener('DOMContentLoaded', () => {
+  startRefreshCountdown();
+  void syncRefreshStatus();
   void loadData({}, { minFreshMs: POPUP_OPEN_REFRESH_GRACE_MS });
   startAutoRefresh();
 });
 window.addEventListener('beforeunload', () => {
   if (autoRefreshTimerId !== null) {
     clearInterval(autoRefreshTimerId);
+  }
+  if (countdownTimerId !== null) {
+    clearInterval(countdownTimerId);
   }
 });
