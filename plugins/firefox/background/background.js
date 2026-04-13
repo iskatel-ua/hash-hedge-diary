@@ -27,8 +27,18 @@ const BACKGROUND_REFRESH_INTERVAL_MS = BACKGROUND_REFRESH_INTERVAL_MINUTES * 60_
 const STOP_PROFIT_LOSS_ADD_URL = 'https://cb.hashhedge.com/v1/cfd/stop/profit/loss/add';
 const STOP_PROFIT_LOSS_UPDATE_URL = 'https://cb.hashhedge.com/v1/cfd/stop/profit/loss/update';
 const TRADE_CACHE_STORAGE_KEY = 'tradeDataCacheV1';
+const SLTP_SETTINGS_STORAGE_KEY = 'hhd_sltp_settings';
+const AUTO_SLTP_SEEN_AT_STORAGE_KEY = 'hhd_auto_sltp_seen_at_v1';
 const BACKGROUND_REFRESH_ALARM = 'hashhedge-refresh-default';
+const AUTO_SLTP_CHECK_ALARM = 'hashhedge-auto-sltp-check';
+const AUTO_SLTP_CHECK_INTERVAL_MINUTES = 1;
+const AUTO_SLTP_TRIGGER_DELAY_MS = 3 * 60_000;
 const DEFAULT_FILTERS = {};
+const DEFAULT_SLTP_SETTINGS = Object.freeze({
+  slPercent: 1,
+  tpPercent: 1,
+  autoApplyEnabled: false,
+});
 const authStateWaiters = new Set();
 const publicInstrumentsCache = {
   fetchedAt: 0,
@@ -36,6 +46,9 @@ const publicInstrumentsCache = {
   pending: null,
 };
 let tradeDataCache = null;
+let sltpSettings = { ...DEFAULT_SLTP_SETTINGS };
+let autoSltpCheckInProgress = null;
+let autoSltpSeenAtCache = null;
 const tradeDataRequests = new Map();
 
 function delay(ms) {
@@ -44,6 +57,54 @@ function delay(ms) {
 
 function hasAuthHeaders(headers) {
   return !!headers && Object.keys(headers).length > 0;
+}
+
+function clampPercent(value, min, max, fallback) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(num)));
+}
+
+function normalizeSltpSettings(value) {
+  return {
+    slPercent: clampPercent(value?.slPercent, 1, 15, DEFAULT_SLTP_SETTINGS.slPercent),
+    tpPercent: clampPercent(value?.tpPercent, 1, 50, DEFAULT_SLTP_SETTINGS.tpPercent),
+    autoApplyEnabled: Boolean(value?.autoApplyEnabled),
+  };
+}
+
+async function loadSltpSettings() {
+  const stored = await browser.storage.local.get(SLTP_SETTINGS_STORAGE_KEY);
+  sltpSettings = normalizeSltpSettings(stored[SLTP_SETTINGS_STORAGE_KEY]);
+  return sltpSettings;
+}
+
+async function persistSltpSettings(nextSettings) {
+  sltpSettings = normalizeSltpSettings(nextSettings);
+  await browser.storage.local.set({
+    [SLTP_SETTINGS_STORAGE_KEY]: sltpSettings,
+  });
+  return sltpSettings;
+}
+
+async function loadAutoSltpSeenAtMap() {
+  if (autoSltpSeenAtCache) {
+    return autoSltpSeenAtCache;
+  }
+
+  const stored = await browser.storage.local.get(AUTO_SLTP_SEEN_AT_STORAGE_KEY);
+  autoSltpSeenAtCache = stored[AUTO_SLTP_SEEN_AT_STORAGE_KEY] || {};
+  return autoSltpSeenAtCache;
+}
+
+async function persistAutoSltpSeenAtMap() {
+  if (!autoSltpSeenAtCache) {
+    return;
+  }
+
+  await browser.storage.local.set({
+    [AUTO_SLTP_SEEN_AT_STORAGE_KEY]: autoSltpSeenAtCache,
+  });
 }
 
 function stableStringify(value) {
@@ -395,6 +456,21 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
     upsertPositionStopProfitLoss(request.payload, Boolean(request.hasExistingStops), request.locale).then(sendResponse);
     return true;
   }
+
+  if (request.type === 'SETTINGS_UPDATED') {
+    persistSltpSettings(request.settings)
+      .then(async (settings) => {
+        await syncAutoSltpAlarm();
+        if (settings.autoApplyEnabled) {
+          void runAutoSltpCheck('settings-updated');
+        }
+        sendResponse({ ok: true, settings });
+      })
+      .catch((error) => {
+        sendResponse({ ok: false, error: error?.message || msg(request.locale, 'unknownError') });
+      });
+    return true;
+  }
 });
 
 function createJsonHeaders(headers) {
@@ -549,7 +625,7 @@ async function upsertPositionStopProfitLoss(payload, hasExistingStops, locale) {
     if (!hasAuthHeaders(headers)) {
       return {
         ok: false,
-        error: t(locale, 'noAuthHeaders'),
+        error: msg(locale, 'noAuthHeaders'),
       };
     }
 
@@ -579,7 +655,7 @@ async function upsertPositionStopProfitLoss(payload, hasExistingStops, locale) {
     if (!openPositionsResult.response.ok) {
       return {
         ok: false,
-        error: t(locale, 'apiAuthHint', openPositionsResult.response.status, openPositionsResult.response.statusText),
+        error: msg(locale, 'apiAuthHint', openPositionsResult.response.status, openPositionsResult.response.statusText),
       };
     }
 
@@ -661,7 +737,7 @@ async function upsertPositionStopProfitLoss(payload, hasExistingStops, locale) {
         ok: false,
         error: getResponseErrorMessage(
           result.body,
-          t(locale, 'apiAuthHint', result.response.status, result.response.statusText)
+          msg(locale, 'apiAuthHint', result.response.status, result.response.statusText)
         ),
       };
     }
@@ -674,7 +750,7 @@ async function upsertPositionStopProfitLoss(payload, hasExistingStops, locale) {
       });
       return {
         ok: false,
-        error: getResponseErrorMessage(result.body, t(locale, 'unknownError')),
+        error: getResponseErrorMessage(result.body, msg(locale, 'unknownError')),
       };
     }
 
@@ -688,9 +764,332 @@ async function upsertPositionStopProfitLoss(payload, hasExistingStops, locale) {
   } catch (error) {
     return {
       ok: false,
-      error: error?.message || t(locale, 'unknownError'),
+      error: error?.message || msg(locale, 'unknownError'),
     };
   }
+}
+
+function countDecimals(value) {
+  if (value === null || value === undefined || value === '') return 0;
+  const str = String(value).trim();
+  if (!str || str.includes('e') || str.includes('E')) return 0;
+  const dotIndex = str.indexOf('.');
+  return dotIndex >= 0 ? str.length - dotIndex - 1 : 0;
+}
+
+function getPricePrecision(position) {
+  const instrumentPrecision = Number(position?.pricePrecision);
+  if (Number.isFinite(instrumentPrecision) && instrumentPrecision >= 0) {
+    return Math.min(10, Math.max(0, Math.floor(instrumentPrecision)));
+  }
+
+  const precision = Math.max(
+    countDecimals(position?.openPrice),
+    countDecimals(position?.stopLossPrice),
+    countDecimals(position?.stopProfitPrice),
+    countDecimals(position?.currentPrice),
+    countDecimals(position?.markPrice),
+    countDecimals(position?.lastPrice),
+    2
+  );
+  return Math.min(8, precision);
+}
+
+function formatRequestPrice(value, precision) {
+  return value.toFixed(precision).replace(/\.?0+$/, '');
+}
+
+function getTickSize(precision) {
+  if (!Number.isFinite(precision) || precision <= 0) {
+    return 1;
+  }
+  return 1 / (10 ** precision);
+}
+
+function getPositionCurrentPrice(position) {
+  const candidates = [
+    position?.currentPrice,
+    position?.markPrice,
+    position?.lastPrice,
+  ];
+
+  for (const value of candidates) {
+    const price = Number(value);
+    if (Number.isFinite(price) && price > 0) {
+      return price;
+    }
+  }
+
+  return null;
+}
+
+function normalizeStopsForRange(direction, stopLossPrice, stopProfitPrice, referencePrice, precision) {
+  const tick = getTickSize(precision);
+  const roundedReference = Number(referencePrice.toFixed(precision));
+  let sl = Number(stopLossPrice.toFixed(precision));
+  let tp = Number(stopProfitPrice.toFixed(precision));
+
+  if (direction === 'short') {
+    if (!(sl > roundedReference)) {
+      sl = Number((roundedReference + tick).toFixed(precision));
+    }
+    if (!(tp < roundedReference)) {
+      tp = Number((Math.max(tick, roundedReference - tick)).toFixed(precision));
+    }
+  } else {
+    if (!(sl < roundedReference)) {
+      sl = Number((Math.max(tick, roundedReference - tick)).toFixed(precision));
+    }
+    if (!(tp > roundedReference)) {
+      tp = Number((roundedReference + tick).toFixed(precision));
+    }
+  }
+
+  return { stopLossPrice: sl, stopProfitPrice: tp };
+}
+
+function getPositionId(position) {
+  const candidate = position?.positionId ?? position?.idStr;
+  if (candidate === null || candidate === undefined || candidate === '') {
+    return null;
+  }
+  return String(candidate);
+}
+
+function getStopId(position) {
+  const candidate = position?.allStopId ?? position?.id;
+  if (candidate === null || candidate === undefined || candidate === '') {
+    return null;
+  }
+  return String(candidate);
+}
+
+function getPositionCreatedAtMs(position) {
+  const candidates = [
+    position?.createdDate,
+    position?.createTime,
+    position?.openTime,
+    position?.ctime,
+    position?.time,
+  ];
+
+  for (const raw of candidates) {
+    const value = Number(raw);
+    if (Number.isFinite(value) && value > 0) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function getAutoSltpPositionKey(position) {
+  return [
+    String(position?.positionId ?? position?.idStr ?? ''),
+    String(position?.instrument ?? '').toUpperCase(),
+    String(position?.direction ?? '').toLowerCase(),
+  ].join('|');
+}
+
+function buildDefaultStopsPayload(position, settings) {
+  const openPrice = Number(position?.openPrice);
+  const direction = String(position?.direction || '').toLowerCase();
+  const positionId = getPositionId(position);
+  const stopId = getStopId(position);
+
+  if (!Number.isFinite(openPrice) || openPrice <= 0) {
+    return null;
+  }
+
+  if (!positionId) {
+    return null;
+  }
+
+  const precision = getPricePrecision(position);
+  const isShort = direction === 'short';
+  const slMultiplier = isShort
+    ? 1 + settings.slPercent / 100
+    : 1 - settings.slPercent / 100;
+  const tpMultiplier = isShort
+    ? 1 - settings.tpPercent / 100
+    : 1 + settings.tpPercent / 100;
+  const referencePrice = getPositionCurrentPrice(position) || openPrice;
+  const normalizedStops = normalizeStopsForRange(
+    direction,
+    openPrice * slMultiplier,
+    openPrice * tpMultiplier,
+    referencePrice,
+    precision
+  );
+  const stopLossPrice = normalizedStops.stopLossPrice;
+  const stopProfitPrice = normalizedStops.stopProfitPrice;
+
+  return {
+    payload: {
+      instrument: String(position?.instrument || '').toUpperCase(),
+      stopType: 1,
+      stopProfitWorkingType: 'CONTRACT_PRICE',
+      stopLossWorkingType: 'CONTRACT_PRICE',
+      stopProfitWorkingPrice: formatRequestPrice(stopProfitPrice, precision),
+      stopProfitTriggerPrice: '',
+      stopProfitTriggerType: 'MARKET',
+      stopLossWorkingPrice: formatRequestPrice(stopLossPrice, precision),
+      stopLossTriggerPrice: '',
+      stopLossTriggerType: 'MARKET',
+      id: stopId,
+      allStopId: stopId,
+      positionId,
+      idStr: positionId,
+    },
+    hasExistingStops: hasStopsConfigured(position),
+  };
+}
+
+async function fetchOpenPositionsForAutoCheck() {
+  let headers = await buildAuthHeaders();
+
+  if (!hasAuthHeaders(headers)) {
+    headers = await refreshAuthContext(true);
+  }
+
+  if (!hasAuthHeaders(headers)) {
+    return [];
+  }
+
+  const doFetch = async (requestHeaders) => {
+    const response = await fetch(OPEN_POSITIONS_URL, {
+      credentials: 'include',
+      headers: requestHeaders,
+    });
+
+    if (!response.ok) {
+      return { response, positions: [] };
+    }
+
+    let positions = extractOpenPositions(await response.json());
+    const instrumentsByKey = await getPublicInstrumentsMap().catch(() => null);
+    positions = enrichOpenPositionsWithPrices(positions, instrumentsByKey);
+    return { response, positions };
+  };
+
+  let result = await doFetch(headers);
+  if (result.response.status === 401 || result.response.status === 403) {
+    headers = await refreshAuthContext(false);
+    if (hasAuthHeaders(headers)) {
+      result = await doFetch(headers);
+    }
+  }
+
+  return result.positions || [];
+}
+
+async function applyAutoStopsIfNeeded(reason = 'unknown') {
+  const settings = normalizeSltpSettings(sltpSettings);
+  if (!settings.autoApplyEnabled) {
+    return;
+  }
+
+  const now = Date.now();
+  const positions = await fetchOpenPositionsForAutoCheck();
+  const seenMap = await loadAutoSltpSeenAtMap();
+  const activeKeys = new Set();
+  let seenMapChanged = false;
+
+  for (const position of positions) {
+    const key = getAutoSltpPositionKey(position);
+    if (!key || key === '||') {
+      continue;
+    }
+    activeKeys.add(key);
+
+    const hasSl = Number(position?.stopLossPrice) > 0;
+    if (hasSl) {
+      if (key in seenMap) {
+        delete seenMap[key];
+        seenMapChanged = true;
+      }
+      continue;
+    }
+
+    const createdAt = getPositionCreatedAtMs(position);
+    const fallbackSeenAt = Number(seenMap[key]);
+    const referenceTime = Number.isFinite(createdAt) && createdAt > 0
+      ? createdAt
+      : (Number.isFinite(fallbackSeenAt) && fallbackSeenAt > 0 ? fallbackSeenAt : now);
+
+    if (!Number.isFinite(fallbackSeenAt) || fallbackSeenAt <= 0) {
+      seenMap[key] = now;
+      seenMapChanged = true;
+    }
+
+    if (now - referenceTime < AUTO_SLTP_TRIGGER_DELAY_MS) {
+      continue;
+    }
+
+    const request = buildDefaultStopsPayload(position, settings);
+    if (!request) {
+      continue;
+    }
+
+    const result = await upsertPositionStopProfitLoss(request.payload, request.hasExistingStops, 'en');
+    if (!result?.ok) {
+      console.warn(`[HashHedge] Auto SL/TP apply failed (${reason}):`, result?.error || 'unknown');
+      continue;
+    }
+
+    if (key in seenMap) {
+      delete seenMap[key];
+      seenMapChanged = true;
+    }
+  }
+
+  for (const key of Object.keys(seenMap)) {
+    if (!activeKeys.has(key)) {
+      delete seenMap[key];
+      seenMapChanged = true;
+    }
+  }
+
+  if (seenMapChanged) {
+    await persistAutoSltpSeenAtMap();
+  }
+}
+
+async function runAutoSltpCheck(reason) {
+  if (autoSltpCheckInProgress) {
+    return await autoSltpCheckInProgress;
+  }
+
+  autoSltpCheckInProgress = applyAutoStopsIfNeeded(reason)
+    .catch((error) => {
+      console.warn('[HashHedge] Auto SL/TP check failed:', error);
+    })
+    .finally(() => {
+      autoSltpCheckInProgress = null;
+    });
+
+  return await autoSltpCheckInProgress;
+}
+
+async function syncAutoSltpAlarm() {
+  const alarm = await browser.alarms.get(AUTO_SLTP_CHECK_ALARM);
+  if (sltpSettings.autoApplyEnabled) {
+    if (!alarm) {
+      browser.alarms.create(AUTO_SLTP_CHECK_ALARM, {
+        periodInMinutes: AUTO_SLTP_CHECK_INTERVAL_MINUTES,
+      });
+    }
+    return;
+  }
+
+  if (alarm) {
+    await browser.alarms.clear(AUTO_SLTP_CHECK_ALARM);
+  }
+}
+
+async function initializeSltpSettings() {
+  await loadSltpSettings();
+  await syncAutoSltpAlarm();
 }
 
 /**
@@ -1331,21 +1730,29 @@ async function refreshDefaultTradeData(reason) {
 browser.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === BACKGROUND_REFRESH_ALARM) {
     void refreshDefaultTradeData('alarm');
+    return;
+  }
+
+  if (alarm.name === AUTO_SLTP_CHECK_ALARM) {
+    void runAutoSltpCheck('alarm');
   }
 });
 
 browser.runtime.onInstalled.addListener(() => {
+  void initializeSltpSettings();
   void scheduleBackgroundRefresh();
   void refreshDefaultTradeData('install');
 });
 
 if (browser.runtime.onStartup) {
   browser.runtime.onStartup.addListener(() => {
+    void initializeSltpSettings();
     void scheduleBackgroundRefresh();
     void refreshDefaultTradeData('startup');
   });
 }
 
+void initializeSltpSettings();
 void scheduleBackgroundRefresh();
 void refreshDefaultTradeData('load');
 

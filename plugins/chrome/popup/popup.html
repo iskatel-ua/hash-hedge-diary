@@ -84,6 +84,15 @@
           <span class="settings-range__sub" id="tpRangeHint">Процент от цены входа</span>
           <input id="tpRange" type="range" min="1" max="50" step="1" value="1" />
         </label>
+
+        <label class="settings-toggle" for="autoApplyToggle">
+          <span class="settings-toggle__text">
+            <span class="settings-toggle__title" id="autoApplyLabel">Автовыставление SL / TP</span>
+            <span class="settings-toggle__hint" id="autoApplyHint">Через 3 минуты без SL автоматически выставить SL и TP</span>
+          </span>
+          <input id="autoApplyToggle" type="checkbox" />
+          <span class="settings-toggle__switch" aria-hidden="true"></span>
+        </label>
       </div>
 
       <div class="settings-actions">

@@ -11,6 +11,7 @@ const POPUP_OPEN_REFRESH_GRACE_MS = 60_000;
 const DEFAULT_SLTP_SETTINGS = Object.freeze({
   slPercent: 1,
   tpPercent: 1,
+  autoApplyEnabled: false,
 });
 let locale = getInitialLocale();
 let lastRenderState = null;
@@ -67,6 +68,8 @@ const I18N = {
     settingsSl: 'SL',
     settingsTp: 'TP',
     settingsPercentHint: 'Percent from entry price',
+    settingsAutoApplyLabel: 'Auto-apply SL / TP',
+    settingsAutoApplyHint: 'If no SL for 3 minutes after order creation, set SL and TP automatically',
     settingsImport: 'Import JSON',
     settingsExport: 'Export JSON',
     settingsSaved: 'Settings saved',
@@ -146,6 +149,8 @@ const I18N = {
     settingsSl: 'SL',
     settingsTp: 'TP',
     settingsPercentHint: 'Процент от цены входа',
+    settingsAutoApplyLabel: 'Автовыставление SL / TP',
+    settingsAutoApplyHint: 'Если на сделке нет SL 3 минуты после создания ордера, автоматически выставить SL и TP',
     settingsImport: 'Импорт JSON',
     settingsExport: 'Экспорт JSON',
     settingsSaved: 'Настройки сохранены',
@@ -227,6 +232,7 @@ function normalizeSltpSettings(value) {
   return {
     slPercent: clampNumber(value?.slPercent, 1, 15, DEFAULT_SLTP_SETTINGS.slPercent),
     tpPercent: clampNumber(value?.tpPercent, 1, 50, DEFAULT_SLTP_SETTINGS.tpPercent),
+    autoApplyEnabled: Boolean(value?.autoApplyEnabled),
   };
 }
 
@@ -315,6 +321,9 @@ const slRangeValue = document.getElementById('slRangeValue');
 const tpRangeValue = document.getElementById('tpRangeValue');
 const slRangeHint = document.getElementById('slRangeHint');
 const tpRangeHint = document.getElementById('tpRangeHint');
+const autoApplyLabel = document.getElementById('autoApplyLabel');
+const autoApplyHint = document.getElementById('autoApplyHint');
+const autoApplyToggle = document.getElementById('autoApplyToggle');
 const btnExportSettings = document.getElementById('btnExportSettings');
 const btnImportSettings = document.getElementById('btnImportSettings');
 const settingsImportInput = document.getElementById('settingsImportInput');
@@ -402,6 +411,8 @@ function applyStaticTexts() {
   if (tpRangeLabel) tpRangeLabel.textContent = t('settingsTp');
   if (slRangeHint) slRangeHint.textContent = t('settingsPercentHint');
   if (tpRangeHint) tpRangeHint.textContent = t('settingsPercentHint');
+  if (autoApplyLabel) autoApplyLabel.textContent = t('settingsAutoApplyLabel');
+  if (autoApplyHint) autoApplyHint.textContent = t('settingsAutoApplyHint');
   if (btnExportSettings) btnExportSettings.textContent = t('settingsExport');
   if (btnImportSettings) btnImportSettings.textContent = t('settingsImport');
   if (positionActionTitle) positionActionTitle.textContent = t('settingsActionTitle');
@@ -413,8 +424,20 @@ function applyStaticTexts() {
 function renderSltpSettings() {
   if (slRange) slRange.value = String(sltpSettings.slPercent);
   if (tpRange) tpRange.value = String(sltpSettings.tpPercent);
+  if (autoApplyToggle) autoApplyToggle.checked = Boolean(sltpSettings.autoApplyEnabled);
   if (slRangeValue) slRangeValue.textContent = `${sltpSettings.slPercent}%`;
   if (tpRangeValue) tpRangeValue.textContent = `${sltpSettings.tpPercent}%`;
+}
+
+async function syncBackgroundSltpSettings() {
+  try {
+    await chrome.runtime.sendMessage({
+      type: 'SETTINGS_UPDATED',
+      settings: sltpSettings,
+    });
+  } catch (_) {
+    // Popup can continue if background is temporarily unavailable.
+  }
 }
 
 function updateSltpSetting(key, value) {
@@ -424,6 +447,7 @@ function updateSltpSetting(key, value) {
   });
   persistSltpSettings();
   renderSltpSettings();
+  void syncBackgroundSltpSettings();
   if (selectedPositionContext) {
     renderPositionActionMenu();
   }
@@ -846,6 +870,38 @@ function formatRequestPrice(value, precision) {
   return value.toFixed(precision).replace(/\.?0+$/, '');
 }
 
+function getTickSize(precision) {
+  if (!Number.isFinite(precision) || precision <= 0) {
+    return 1;
+  }
+  return 1 / (10 ** precision);
+}
+
+function normalizeStopsForRange(direction, stopLossPrice, stopProfitPrice, referencePrice, precision) {
+  const tick = getTickSize(precision);
+  const roundedReference = Number(referencePrice.toFixed(precision));
+  let sl = Number(stopLossPrice.toFixed(precision));
+  let tp = Number(stopProfitPrice.toFixed(precision));
+
+  if (direction === 'short') {
+    if (!(sl > roundedReference)) {
+      sl = Number((roundedReference + tick).toFixed(precision));
+    }
+    if (!(tp < roundedReference)) {
+      tp = Number((Math.max(tick, roundedReference - tick)).toFixed(precision));
+    }
+  } else {
+    if (!(sl < roundedReference)) {
+      sl = Number((Math.max(tick, roundedReference - tick)).toFixed(precision));
+    }
+    if (!(tp > roundedReference)) {
+      tp = Number((roundedReference + tick).toFixed(precision));
+    }
+  }
+
+  return { stopLossPrice: sl, stopProfitPrice: tp };
+}
+
 function getPositionId(position) {
   const candidate = position?.positionId ?? position?.idStr;
   if (candidate === null || candidate === undefined || candidate === '') {
@@ -886,8 +942,16 @@ function buildDefaultStops(position) {
   const tpMultiplier = isShort
     ? 1 - sltpSettings.tpPercent / 100
     : 1 + sltpSettings.tpPercent / 100;
-  const stopLossPrice = openPrice * slMultiplier;
-  const stopProfitPrice = openPrice * tpMultiplier;
+  const referencePrice = getPositionCurrentPrice(position) || openPrice;
+  const normalizedStops = normalizeStopsForRange(
+    direction,
+    openPrice * slMultiplier,
+    openPrice * tpMultiplier,
+    referencePrice,
+    precision
+  );
+  const stopLossPrice = normalizedStops.stopLossPrice;
+  const stopProfitPrice = normalizedStops.stopProfitPrice;
 
   return {
     positionId,
@@ -989,6 +1053,7 @@ async function importSettings(file) {
   sltpSettings = normalizeSltpSettings(JSON.parse(content));
   persistSltpSettings();
   renderSltpSettings();
+  void syncBackgroundSltpSettings();
   if (selectedPositionContext) {
     renderPositionActionMenu();
   }
@@ -1256,6 +1321,11 @@ if (slRange) {
 if (tpRange) {
   tpRange.addEventListener('input', (event) => updateSltpSetting('tpPercent', event.target.value));
 }
+if (autoApplyToggle) {
+  autoApplyToggle.addEventListener('change', (event) => {
+    updateSltpSetting('autoApplyEnabled', event.target.checked);
+  });
+}
 if (btnExportSettings) {
   btnExportSettings.addEventListener('click', exportSettings);
 }
@@ -1309,6 +1379,7 @@ document.addEventListener('keydown', (event) => {
 document.addEventListener('DOMContentLoaded', () => {
   switchTab(activeTab);
   startRefreshCountdown();
+  void syncBackgroundSltpSettings();
   void syncRefreshStatus();
   void loadData({}, { minFreshMs: POPUP_OPEN_REFRESH_GRACE_MS });
   startAutoRefresh();

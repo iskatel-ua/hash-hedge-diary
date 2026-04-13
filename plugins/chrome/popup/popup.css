@@ -433,6 +433,69 @@ body {
   accent-color: var(--accent);
 }
 
+.settings-toggle {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  cursor: pointer;
+}
+
+.settings-toggle__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-toggle__title {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.settings-toggle__hint {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.settings-toggle input[type='checkbox'] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.settings-toggle__switch {
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  position: relative;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.settings-toggle__switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.settings-toggle input[type='checkbox']:checked + .settings-toggle__switch {
+  border-color: #2f4a3a;
+  background: rgba(0, 255, 136, 0.12);
+}
+
+.settings-toggle input[type='checkbox']:checked + .settings-toggle__switch::after {
+  transform: translateX(20px);
+  background: var(--accent);
+}
+
 .settings-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
