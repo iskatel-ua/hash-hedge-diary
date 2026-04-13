@@ -1,6 +1,6 @@
 # Hash Hedge Diary
 
-[![VirusTotal Scan](https://github.com/iskatel-ua/hash-hedge-diary/actions/workflows/virustotal-scan.yml/badge.svg)](https://www.virustotal.com/gui/file/c9a73b03b01f62cd1dcb8cc67f506b2c2831bac16eb164db417fc63ef390426a)
+[![VirusTotal Scan](https://github.com/iskatel-ua/hash-hedge-diary/actions/workflows/virustotal-scan.yml/badge.svg)](https://www.virustotal.com/gui/file/2c4155a0c8ff71525d7cc711413ece9ee9cd60d34f63556f822ef30fd76ede9a)
 
 > Maintainers note: when updating the VirusTotal report URL, update the same URL in `docs/index.html` (VirusTotal button).
 
