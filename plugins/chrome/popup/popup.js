@@ -34,6 +34,8 @@ const I18N = {
     positionsRisk: '!',
     positionsNoSl: 'No SL',
     positionsNoTp: 'No TP',
+    positionsNoSlTp: 'No SL / TP',
+    positionsStopsSet: 'SL and TP set',
     positionsSl: 'SL',
     positionsTp: 'TP',
     positionsNotSet: '—',
@@ -93,6 +95,8 @@ const I18N = {
     positionsRisk: '!',
     positionsNoSl: 'Нет SL',
     positionsNoTp: 'Нет TP',
+    positionsNoSlTp: 'Нет SL / TP',
+    positionsStopsSet: 'SL и TP установлены',
     positionsSl: 'SL',
     positionsTp: 'TP',
     positionsNotSet: '—',
@@ -675,9 +679,16 @@ function renderOpenPositions(openPositions) {
     const pnlStateClass = pnlPct > 0 ? 'pos-state--positive' : pnlPct < 0 ? 'pos-state--negative' : 'pos-state--neutral';
     const pnlDisplay = formatPositionPercent(pnlPct);
 
+    const isRisk = !hasSl || !hasTp;
     const riskClass = !hasSl ? 'pos-risk pos-risk--danger' : (!hasTp ? 'pos-risk pos-risk--warn' : 'pos-risk');
-    const riskTitle = !hasSl ? t('positionsNoSl') : (!hasTp ? t('positionsNoTp') : '');
-    const riskMark = !hasSl || !hasTp ? '▲' : '';
+    const riskTitle = !hasSl && !hasTp
+      ? t('positionsNoSlTp')
+      : !hasSl
+        ? t('positionsNoSl')
+        : !hasTp
+          ? t('positionsNoTp')
+          : t('positionsStopsSet');
+    const riskMark = isRisk ? '<span class="pos-risk-icon" aria-hidden="true">⚠</span>' : '';
 
     const direction = String(pos?.direction || '').toLowerCase();
     const isLong = direction === 'long';
@@ -701,7 +712,7 @@ function renderOpenPositions(openPositions) {
           <span class="pos-stop-line"><strong>${t('positionsTp')}</strong><em>${formatPrice(tp)}</em></span>
         </div>
       </td>
-      <td class="pos-col--risk ${riskClass}" title="${riskTitle}">${riskMark}</td>
+      <td class="pos-col--risk ${riskClass}" title="${riskTitle}" aria-label="${riskTitle}">${riskMark}</td>
     `;
     tbody.appendChild(tr);
   }
