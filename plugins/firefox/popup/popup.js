@@ -25,6 +25,11 @@ const I18N = {
     switchLangTitle: 'Switch language',
     switchedTo: 'Language',
     currentLanguageName: 'English',
+    reloadTabButton: 'Reload trade tab',
+    reloadTabTitle: 'Reload the HashHedge trade page',
+    reloadTabSuccess: 'Trade tab reloaded',
+    reloadTabNotFound: 'Trade tab not found',
+    reloadTabError: 'Failed to reload trade tab',
     dow: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
     metricLabels: {
       winRate: 'Win Rate',
@@ -67,6 +72,11 @@ const I18N = {
     switchLangTitle: 'Переключить язык',
     switchedTo: 'Язык',
     currentLanguageName: 'Русский',
+    reloadTabButton: 'Перезагрузить таб',
+    reloadTabTitle: 'Перезагрузить страницу торговли HashHedge',
+    reloadTabSuccess: 'Таб торговли перезагружен',
+    reloadTabNotFound: 'Таб торговли не найден',
+    reloadTabError: 'Ошибка при перезагрузке таба',
     dow: ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'],
     metricLabels: {
       winRate: 'Винрейт',
@@ -164,6 +174,7 @@ const btnRefresh  = document.getElementById('btnRefresh');
 const tradeCount  = document.getElementById('tradeCount');
 const headerTitle = document.querySelector('.header__title');
 const btnLang = document.getElementById('btnLang');
+const btnReloadTab = document.getElementById('btnReloadTab');
 const btnDonate = document.getElementById('btnDonate');
 
 // ── Status helpers ─────────────────────────────────────────────────
@@ -193,6 +204,11 @@ function applyStaticTexts() {
   btnLang.title = t('switchLangTitle');
   btnLang.classList.toggle('btn-lang--ru', locale === 'ru');
   btnLang.classList.toggle('btn-lang--en', locale === 'en');
+  if (btnReloadTab) {
+    btnReloadTab.textContent = '↻';
+    btnReloadTab.title = t('reloadTabTitle');
+    btnReloadTab.setAttribute('aria-label', t('reloadTabTitle'));
+  }
   if (btnDonate) {
     btnDonate.textContent = t('donateButton');
     btnDonate.title = t('donateTitle');
@@ -380,8 +396,33 @@ function renderMetrics(metrics, filteredCount, rawCount) {
   }
 }
 
+// ── Reload trade tab helper ───────────────────────────────────────
+async function reloadTradeTab() {
+  try {
+    const tabs = await browser.tabs.query({
+      url: ['*://hashhedge.com/client/trade*', '*://*.hashhedge.com/client/trade*']
+    });
+
+    if (tabs.length === 0) {
+      showError(t('reloadTabNotFound'));
+      return;
+    }
+
+    // Reload the first matching tab
+    await browser.tabs.reload(tabs[0].id);
+    setStatus('ok', t('reloadTabSuccess'));
+  } catch (error) {
+    setStatus('error', t('reloadTabError'));
+    showError(error?.message || t('reloadTabError'));
+  }
+}
+
 // ── Main load ──────────────────────────────────────────────────────
-async function loadData(activeFilters = {}) {
+async function loadData(activeFilters = {}, retryAfterMs = 0) {
+  if (retryAfterMs > 0) {
+    await new Promise(resolve => setTimeout(resolve, retryAfterMs));
+  }
+
   hideError();
   setStatus('loading', t('loading'));
   btnRefresh.disabled = true;
@@ -397,6 +438,12 @@ async function loadData(activeFilters = {}) {
       throw new Error(t('noResponse'));
     }
     if (!response.ok) {
+      // If auto-reload was attempted, retry after a delay to allow auth headers to be captured
+      if (response.attemptedAutoReload) {
+        console.log('[HashHedge] Trade tab was auto-reloaded, retrying in 2s...');
+        return loadData(activeFilters, 2000);
+      }
+      
       throw new Error(response.error || t('unknownError'));
     }
 
@@ -414,5 +461,8 @@ async function loadData(activeFilters = {}) {
 // ── Boot ───────────────────────────────────────────────────────────
 applyStaticTexts();
 btnLang.addEventListener('click', toggleLocale);
+if (btnReloadTab) {
+  btnReloadTab.addEventListener('click', reloadTradeTab);
+}
 btnRefresh.addEventListener('click', () => loadData());
 document.addEventListener('DOMContentLoaded', () => loadData());

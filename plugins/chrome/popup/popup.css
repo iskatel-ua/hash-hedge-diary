@@ -87,6 +87,38 @@ body {
   color: var(--accent);
 }
 
+.btn-reload-tab {
+  height: 22px;
+  width: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s, color 0.15s, background 0.15s, transform 0.2s;
+}
+
+.btn-reload-tab:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn-reload-tab:active {
+  transform: rotate(180deg);
+}
+
+.btn-reload-tab:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .btn-donate {
   height: 22px;
   padding: 0 8px;

@@ -129,7 +129,7 @@ async function handleFetchTrades(activeFilters, locale) {
   // ── Build request headers ─────────────────────────────────────────────────
   // Priority: captured webRequest headers > Bearer token from localStorage/cookies
   try {
-    const session = await chrome.storage.session.get(['capturedHeaders', 'authToken']);
+    const session = await chrome.storage.session.get(['capturedHeaders', 'authToken', 'reloadAttempted']);
     const headers = { ...(session.capturedHeaders || {}) };
 
     // If no captured headers yet, try Bearer token as fallback
@@ -139,6 +139,24 @@ async function handleFetchTrades(activeFilters, locale) {
     }
 
     if (!Object.keys(headers).length) {
+      // Auto-reload trade page once to help capture auth headers
+      const alreadyAttempted = session.reloadAttempted 
+        ? (Date.now() - session.reloadAttempted < 5000) 
+        : false;
+      
+      if (!alreadyAttempted) {
+        await chrome.storage.session.set({ 
+          reloadAttempted: Date.now() 
+        });
+        await reloadTradePageTab();
+        
+        return {
+          ok: false,
+          error: t(locale, 'noAuthHeaders'),
+          attemptedAutoReload: true,
+        };
+      }
+      
       return {
         ok: false,
         error: t(locale, 'noAuthHeaders'),
@@ -159,6 +177,24 @@ async function handleFetchTrades(activeFilters, locale) {
     console.error('[HashHedge] handleFetchTrades error:', e);
     return { ok: false, error: e?.message || t(locale, 'unknownError') };
   }
+}
+
+/** Reloads the trade page tab if it exists */
+async function reloadTradePageTab() {
+  try {
+    const tabs = await chrome.tabs.query({
+      url: ['*://hashhedge.com/client/trade*', '*://*.hashhedge.com/client/trade*']
+    });
+    
+    if (tabs.length > 0) {
+      await chrome.tabs.reload(tabs[0].id);
+      console.log('[HashHedge] Reloaded trade page tab');
+      return true;
+    }
+  } catch (e) {
+    console.error('[HashHedge] Failed to reload trade tab:', e);
+  }
+  return false;
 }
 
 /** Checks chrome.cookies for common JWT-style token cookie names. */

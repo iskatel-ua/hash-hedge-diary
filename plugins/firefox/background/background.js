@@ -17,6 +17,7 @@ const API_URL = 'https://cb.hashhedge.com/v1/cfd/trade/finish?page=1&pageSize=10
 // Storage for auth headers
 let capturedHeaders = {};
 let cachedToken = null;
+let lastReloadAttempt = 0;
 
 // ── Passive webRequest header capture ─────────────────────────────────────
 // Intercepts requests the PAGE makes to the API and captures auth headers.
@@ -517,6 +518,24 @@ function msg(locale, key, ...args) {
   return typeof m === 'function' ? m(...args) : m;
 }
 
+/** Reloads the trade page tab if it exists */
+async function reloadTradePageTab() {
+  try {
+    const tabs = await browser.tabs.query({
+      url: ['*://hashhedge.com/client/trade*', '*://*.hashhedge.com/client/trade*']
+    });
+    
+    if (tabs.length > 0) {
+      await browser.tabs.reload(tabs[0].id);
+      console.log('[HashHedge] Reloaded trade page tab');
+      return true;
+    }
+  } catch (e) {
+    console.error('[HashHedge] Failed to reload trade tab:', e);
+  }
+  return false;
+}
+
 // ── Core fetch handler ────────────────────────────────────────────────────
 
 async function handleFetchTrades(activeFilters, locale) {
@@ -529,6 +548,21 @@ async function handleFetchTrades(activeFilters, locale) {
     }
 
     if (!Object.keys(headers).length) {
+      // Auto-reload trade page once to help capture auth headers
+      const now = Date.now();
+      const alreadyAttempted = (now - lastReloadAttempt) < 5000;
+      
+      if (!alreadyAttempted) {
+        lastReloadAttempt = now;
+        await reloadTradePageTab();
+        
+        return {
+          ok: false,
+          error: msg(locale, 'noAuthHeaders'),
+          attemptedAutoReload: true,
+        };
+      }
+      
       return { ok: false, error: msg(locale, 'noAuthHeaders') };
     }
 
