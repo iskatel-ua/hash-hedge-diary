@@ -2,12 +2,13 @@
 'use strict';
 
 const LOCALE_STORAGE_KEY = 'hhd_locale';
+const ACTIVE_TAB_STORAGE_KEY = 'hhd_active_tab';
 const POPUP_AUTO_REFRESH_MS = 60_000;
 const BACKGROUND_REFRESH_INTERVAL_MS = 5 * 60_000;
 const POPUP_OPEN_REFRESH_GRACE_MS = 60_000;
 let locale = getInitialLocale();
 let lastRenderState = null;
-let activeTab = 'stats';
+let activeTab = getInitialActiveTab();
 let autoRefreshTimerId = null;
 let countdownTimerId = null;
 let lastUpdatedAtMs = null;
@@ -158,6 +159,22 @@ function detectLocale() {
 function persistLocale() {
   try {
     localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+  } catch (_) {}
+}
+
+function getInitialActiveTab() {
+  try {
+    const saved = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+    if (saved === 'stats' || saved === 'openDeals') {
+      return saved;
+    }
+  } catch (_) {}
+  return 'stats';
+}
+
+function persistActiveTab(tabId) {
+  try {
+    localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, tabId);
   } catch (_) {}
 }
 
@@ -499,7 +516,12 @@ function renderMetrics(metrics, filteredCount, rawCount) {
 }
 
 function switchTab(tabId) {
+  if (tabId !== 'stats' && tabId !== 'openDeals') {
+    tabId = 'stats';
+  }
+
   activeTab = tabId;
+  persistActiveTab(tabId);
   const isStats = tabId === 'stats';
   tabStats.classList.toggle('tab-btn--active', isStats);
   tabOpenDeals.classList.toggle('tab-btn--active', !isStats);
@@ -825,6 +847,7 @@ if (btnReloadTab) {
 }
 btnRefresh.addEventListener('click', () => loadData({}, { forceRefresh: true, minFreshMs: 0 }));
 document.addEventListener('DOMContentLoaded', () => {
+  switchTab(activeTab);
   startRefreshCountdown();
   void syncRefreshStatus();
   void loadData({}, { minFreshMs: POPUP_OPEN_REFRESH_GRACE_MS });
