@@ -279,17 +279,26 @@ body {
 }
 
 .pos-col--direction,
-.pos-col--instrument,
-.pos-col--volume,
-.pos-col--state,
-.pos-col--stops,
-.pos-col--risk {
-  width: 16.67%;
-}
-
-.pos-col--direction,
 .pos-col--risk {
   text-align: center;
+}
+
+.pos-col--direction {
+  padding-left: 2px;
+  padding-right: 2px;
+}
+
+.pos-col--stops,
+.pos-col--risk {
+  text-align: right;
+  padding-right: 4px;
+}
+
+.positions-table th.pos-col--stops,
+.positions-table th.pos-col--risk,
+.positions-table td.pos-col--stops,
+.positions-table td.pos-col--risk {
+  text-align: right;
 }
 
 .pos-instrument {
@@ -298,9 +307,12 @@ body {
 }
 
 .pos-direction {
+  display: inline-block;
   font-weight: 700;
-  font-size: 14px;
+  font-size: 18px;
   line-height: 1;
+  transform: scaleX(1.9);
+  transform-origin: center;
 }
 
 .pos-direction--long {
@@ -327,12 +339,13 @@ body {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  align-items: flex-end;
 }
 
 .pos-stop-line {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 6px;
   color: var(--text-dim);
 }

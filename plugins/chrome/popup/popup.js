@@ -571,12 +571,12 @@ function renderOpenPositions(openPositions) {
 
   table.innerHTML = `
     <colgroup>
-      <col style="width:16.67%">
-      <col style="width:16.67%">
-      <col style="width:16.67%">
-      <col style="width:16.67%">
-      <col style="width:16.67%">
-      <col style="width:16.67%">
+      <col style="width:8%">
+      <col style="width:26%">
+      <col style="width:15%">
+      <col style="width:14%">
+      <col style="width:27%">
+      <col style="width:10%">
     </colgroup>
     <thead>
       <tr>
@@ -613,17 +613,17 @@ function renderOpenPositions(openPositions) {
 
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td class="${directionClass}">${directionArrow}</td>
+      <td class="pos-col--direction ${directionClass}">${directionArrow}</td>
       <td class="pos-instrument">${String(pos?.instrument || '').toUpperCase()}</td>
       <td class="pos-volume">${formatCompactUsd(volume)}</td>
       <td class="pos-state ${pnlStateClass}">${pnlDisplay}</td>
-      <td>
+      <td class="pos-col--stops">
         <div class="pos-stops">
           <span class="pos-stop-line"><strong>${t('positionsSl')}</strong><em>${formatPrice(sl)}</em></span>
           <span class="pos-stop-line"><strong>${t('positionsTp')}</strong><em>${formatPrice(tp)}</em></span>
         </div>
       </td>
-      <td class="${riskClass}" title="${riskTitle}">${riskMark}</td>
+      <td class="pos-col--risk ${riskClass}" title="${riskTitle}">${riskMark}</td>
     `;
     tbody.appendChild(tr);
   }
