@@ -195,6 +195,30 @@
       line-height: 2.1;
     }
 
+    .feature-overview {
+      margin-top: 24px;
+      padding: 22px 24px;
+      border: 1px solid var(--panel-border);
+      border-radius: 20px;
+      background: linear-gradient(140deg, rgba(0, 255, 136, 0.08), rgba(7, 18, 13, 0.94));
+      backdrop-filter: blur(8px);
+    }
+
+    .feature-overview h2 {
+      margin: 0 0 10px;
+      color: var(--accent);
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .feature-overview p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.8;
+    }
+
     .wallet-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -432,6 +456,17 @@
       <aside class="hero__preview" aria-hidden="true">
         <img src="assets/images/demo.jpg" alt="" />
       </aside>
+      </section>
+
+      <section class="feature-overview" aria-label="Extension functionality overview">
+        <h2>What the extension does</h2>
+        <p>
+          Hash Hedge Diary automatically collects your closed trade history from Hash Hedge,
+          applies smart filters, and calculates key performance metrics including win rate,
+          ROI, recovery factor, average hold time, and profit consistency. The popup gives
+          you a fast performance snapshot so you can review your decisions and improve your
+          trading process over time.
+        </p>
       </section>
 
       <div class="wallet-grid">
