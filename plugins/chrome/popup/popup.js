@@ -608,12 +608,17 @@ function renderOpenPositions(openPositions) {
 
     const direction = String(pos?.direction || '').toLowerCase();
     const isLong = direction === 'long';
-    const directionClass = isLong ? 'pos-direction pos-direction--long' : 'pos-direction pos-direction--short';
-    const directionArrow = isLong ? '▲' : '▼';
+    const isShort = direction === 'short';
+    const directionClass = isLong
+      ? 'pos-direction pos-direction--long'
+      : isShort
+        ? 'pos-direction pos-direction--short'
+        : 'pos-direction';
+    const directionArrow = isLong ? '⬆' : isShort ? '⬇' : '•';
 
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td class="pos-col--direction ${directionClass}">${directionArrow}</td>
+      <td class="pos-col--direction"><span class="${directionClass}">${directionArrow}</span></td>
       <td class="pos-instrument">${String(pos?.instrument || '').toUpperCase()}</td>
       <td class="pos-volume">${formatCompactUsd(volume)}</td>
       <td class="pos-state ${pnlStateClass}">${pnlDisplay}</td>
