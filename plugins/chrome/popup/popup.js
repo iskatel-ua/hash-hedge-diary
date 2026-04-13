@@ -3,17 +3,26 @@
 
 const LOCALE_STORAGE_KEY = 'hhd_locale';
 const ACTIVE_TAB_STORAGE_KEY = 'hhd_active_tab';
+const SETTINGS_STORAGE_KEY = 'hhd_sltp_settings';
+const SETTINGS_EXPORT_FILENAME = 'hash-hedge-settings.json';
 const POPUP_AUTO_REFRESH_MS = 60_000;
 const BACKGROUND_REFRESH_INTERVAL_MS = 5 * 60_000;
 const POPUP_OPEN_REFRESH_GRACE_MS = 60_000;
+const DEFAULT_SLTP_SETTINGS = Object.freeze({
+  slPercent: 1,
+  tpPercent: 1,
+});
 let locale = getInitialLocale();
 let lastRenderState = null;
 let activeTab = getInitialActiveTab();
+let sltpSettings = getInitialSltpSettings();
 let autoRefreshTimerId = null;
 let countdownTimerId = null;
 let lastUpdatedAtMs = null;
 let nextRefreshAtMs = null;
 let refreshStatusSyncInProgress = false;
+let selectedPositionContext = null;
+let successHideTimerId = null;
 
 const I18N = {
   en: {
@@ -27,6 +36,7 @@ const I18N = {
     tradesWord: 'trades',
     tabStats: 'Stats',
     tabOpenDeals: 'Positions',
+    tabSettings: 'Settings',
     positionsEmpty: 'No open positions',
     positionsInstrument: 'Instrument',
     positionsVolume: 'Volume',
@@ -53,6 +63,23 @@ const I18N = {
     reloadTabSuccess: 'Trade tab reloaded',
     reloadTabNotFound: 'Trade tab not found',
     reloadTabError: 'Failed to reload trade tab',
+    settingsTitle: 'Default SL / TP',
+    settingsSl: 'SL',
+    settingsTp: 'TP',
+    settingsPercentHint: 'Percent from entry price',
+    settingsImport: 'Import JSON',
+    settingsExport: 'Export JSON',
+    settingsSaved: 'Settings saved',
+    settingsImported: 'Settings imported',
+    settingsExported: 'Settings exported',
+    settingsImportError: 'Failed to import settings JSON',
+    settingsActionTitle: 'Position action',
+    settingsActionButton: 'Set default SL / TP',
+    settingsActionSuccess: 'Default SL / TP applied',
+    settingsActionMissing: 'Position entry price or id is missing',
+    settingsActionMissingPrice: 'Position entry price is missing',
+    settingsActionMissingId: 'Position idStr is missing',
+    settingsActionFailed: 'Failed to set SL / TP',
     dow: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
     metricLabels: {
       winRate: 'Win Rate',
@@ -88,6 +115,7 @@ const I18N = {
     tradesWord: 'сделок',
     tabStats: 'Статистика',
     tabOpenDeals: 'Позиции',
+    tabSettings: 'Настройки',
     positionsEmpty: 'Открытых позиций нет',
     positionsInstrument: 'Инстр.',
     positionsVolume: 'Объём',
@@ -114,6 +142,23 @@ const I18N = {
     reloadTabSuccess: 'Таб торговли перезагружен',
     reloadTabNotFound: 'Таб торговли не найден',
     reloadTabError: 'Ошибка при перезагрузке таба',
+    settingsTitle: 'SL / TP по умолчанию',
+    settingsSl: 'SL',
+    settingsTp: 'TP',
+    settingsPercentHint: 'Процент от цены входа',
+    settingsImport: 'Импорт JSON',
+    settingsExport: 'Экспорт JSON',
+    settingsSaved: 'Настройки сохранены',
+    settingsImported: 'Настройки импортированы',
+    settingsExported: 'Настройки экспортированы',
+    settingsImportError: 'Не удалось импортировать JSON настроек',
+    settingsActionTitle: 'Действие по позиции',
+    settingsActionButton: 'Задать SL / TP по умолчанию',
+    settingsActionSuccess: 'SL / TP по умолчанию применены',
+    settingsActionMissing: 'У позиции нет цены входа или id',
+    settingsActionMissingPrice: 'У позиции нет цены входа',
+    settingsActionMissingId: 'У позиции нет idStr (positionId)',
+    settingsActionFailed: 'Не удалось установить SL / TP',
     dow: ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'],
     metricLabels: {
       winRate: 'Винрейт',
@@ -165,11 +210,40 @@ function persistLocale() {
 function getInitialActiveTab() {
   try {
     const saved = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
-    if (saved === 'stats' || saved === 'openDeals') {
+    if (saved === 'stats' || saved === 'openDeals' || saved === 'settings') {
       return saved;
     }
   } catch (_) {}
   return 'stats';
+}
+
+function clampNumber(value, min, max, fallback) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(num)));
+}
+
+function normalizeSltpSettings(value) {
+  return {
+    slPercent: clampNumber(value?.slPercent, 1, 15, DEFAULT_SLTP_SETTINGS.slPercent),
+    tpPercent: clampNumber(value?.tpPercent, 1, 50, DEFAULT_SLTP_SETTINGS.tpPercent),
+  };
+}
+
+function getInitialSltpSettings() {
+  try {
+    const saved = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (saved) {
+      return normalizeSltpSettings(JSON.parse(saved));
+    }
+  } catch (_) {}
+  return { ...DEFAULT_SLTP_SETTINGS };
+}
+
+function persistSltpSettings() {
+  try {
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(sltpSettings));
+  } catch (_) {}
 }
 
 function persistActiveTab(tabId) {
@@ -186,6 +260,10 @@ function toggleLocale() {
   if (lastRenderState) {
     renderMetrics(lastRenderState.metrics, lastRenderState.filteredCount, lastRenderState.rawCount);
     renderOpenPositions(lastRenderState.openPositions || []);
+  }
+
+  if (selectedPositionContext) {
+    renderPositionActionMenu();
   }
 
   setStatus('ok', `${t('switchedTo')} ${t('currentLanguageName')}`);
@@ -208,13 +286,17 @@ function metricHelp(id) {
 
 // ── DOM references ────────────────────────────────────────────────
 const errorMsg   = document.getElementById('errorMsg');
+const successMsg = document.getElementById('successMsg');
 const metricsGrid = document.getElementById('metricsGrid');
 const tabStats = document.getElementById('tabStats');
 const tabOpenDeals = document.getElementById('tabOpenDeals');
+const tabSettings = document.getElementById('tabSettings');
 const tabStatsLabel = document.getElementById('tabStatsLabel');
 const tabOpenDealsLabel = document.getElementById('tabOpenDealsLabel');
+const tabSettingsLabel = document.getElementById('tabSettingsLabel');
 const panelStats = document.getElementById('panelStats');
 const panelOpenDeals = document.getElementById('panelOpenDeals');
+const panelSettings = document.getElementById('panelSettings');
 const openDealsCount = document.getElementById('openDealsCount');
 const positionsWrap = document.getElementById('positionsWrap');
 const positionsEmpty = document.getElementById('positionsEmpty');
@@ -224,6 +306,23 @@ const headerTitle = document.querySelector('.header__title');
 const btnLang = document.getElementById('btnLang');
 const btnReloadTab = document.getElementById('btnReloadTab');
 const btnDonate = document.getElementById('btnDonate');
+const settingsTitle = document.getElementById('settingsTitle');
+const slRange = document.getElementById('slRange');
+const tpRange = document.getElementById('tpRange');
+const slRangeLabel = document.getElementById('slRangeLabel');
+const tpRangeLabel = document.getElementById('tpRangeLabel');
+const slRangeValue = document.getElementById('slRangeValue');
+const tpRangeValue = document.getElementById('tpRangeValue');
+const slRangeHint = document.getElementById('slRangeHint');
+const tpRangeHint = document.getElementById('tpRangeHint');
+const btnExportSettings = document.getElementById('btnExportSettings');
+const btnImportSettings = document.getElementById('btnImportSettings');
+const settingsImportInput = document.getElementById('settingsImportInput');
+const positionActionMenu = document.getElementById('positionActionMenu');
+const positionActionTitle = document.getElementById('positionActionTitle');
+const positionActionMeta = document.getElementById('positionActionMeta');
+const positionActionPrices = document.getElementById('positionActionPrices');
+const btnApplyDefaultStops = document.getElementById('btnApplyDefaultStops');
 
 // ── Status helpers ─────────────────────────────────────────────────
 function setStatus(state, text) {
@@ -234,11 +333,36 @@ function setStatus(state, text) {
 }
 
 function showError(msg) {
+  hideSuccess();
   errorMsg.textContent = msg;
   errorMsg.classList.add('visible');
 }
 function hideError() {
   errorMsg.classList.remove('visible');
+}
+
+function showSuccess(msg, timeoutMs = 3000) {
+  hideError();
+  if (successHideTimerId !== null) {
+    clearTimeout(successHideTimerId);
+    successHideTimerId = null;
+  }
+
+  successMsg.textContent = msg;
+  successMsg.classList.add('visible');
+
+  successHideTimerId = setTimeout(() => {
+    successMsg.classList.remove('visible');
+    successHideTimerId = null;
+  }, timeoutMs);
+}
+
+function hideSuccess() {
+  if (successHideTimerId !== null) {
+    clearTimeout(successHideTimerId);
+    successHideTimerId = null;
+  }
+  successMsg.classList.remove('visible');
 }
 
 // ── Metric card rendering ──────────────────────────────────────────
@@ -271,8 +395,39 @@ function applyStaticTexts() {
   }
   if (tabStatsLabel) tabStatsLabel.textContent = t('tabStats');
   if (tabOpenDealsLabel) tabOpenDealsLabel.textContent = t('tabOpenDeals');
+  if (tabSettingsLabel) tabSettingsLabel.textContent = t('tabSettings');
   if (positionsEmpty) positionsEmpty.textContent = t('positionsEmpty');
+  if (settingsTitle) settingsTitle.textContent = t('settingsTitle');
+  if (slRangeLabel) slRangeLabel.textContent = t('settingsSl');
+  if (tpRangeLabel) tpRangeLabel.textContent = t('settingsTp');
+  if (slRangeHint) slRangeHint.textContent = t('settingsPercentHint');
+  if (tpRangeHint) tpRangeHint.textContent = t('settingsPercentHint');
+  if (btnExportSettings) btnExportSettings.textContent = t('settingsExport');
+  if (btnImportSettings) btnImportSettings.textContent = t('settingsImport');
+  if (positionActionTitle) positionActionTitle.textContent = t('settingsActionTitle');
+  if (btnApplyDefaultStops) btnApplyDefaultStops.textContent = t('settingsActionButton');
+  renderSltpSettings();
   setStatus('loading', t('initialising'));
+}
+
+function renderSltpSettings() {
+  if (slRange) slRange.value = String(sltpSettings.slPercent);
+  if (tpRange) tpRange.value = String(sltpSettings.tpPercent);
+  if (slRangeValue) slRangeValue.textContent = `${sltpSettings.slPercent}%`;
+  if (tpRangeValue) tpRangeValue.textContent = `${sltpSettings.tpPercent}%`;
+}
+
+function updateSltpSetting(key, value) {
+  sltpSettings = normalizeSltpSettings({
+    ...sltpSettings,
+    [key]: value,
+  });
+  persistSltpSettings();
+  renderSltpSettings();
+  if (selectedPositionContext) {
+    renderPositionActionMenu();
+  }
+  setStatus('ok', t('settingsSaved'));
 }
 
 function formatCountdown(ms) {
@@ -520,21 +675,31 @@ function renderMetrics(metrics, filteredCount, rawCount) {
 }
 
 function switchTab(tabId) {
-  if (tabId !== 'stats' && tabId !== 'openDeals') {
+  if (tabId !== 'stats' && tabId !== 'openDeals' && tabId !== 'settings') {
     tabId = 'stats';
   }
 
   activeTab = tabId;
   persistActiveTab(tabId);
   const isStats = tabId === 'stats';
+  const isOpenDeals = tabId === 'openDeals';
+  const isSettings = tabId === 'settings';
   tabStats.classList.toggle('tab-btn--active', isStats);
-  tabOpenDeals.classList.toggle('tab-btn--active', !isStats);
+  tabOpenDeals.classList.toggle('tab-btn--active', isOpenDeals);
+  tabSettings.classList.toggle('tab-btn--active', isSettings);
   tabStats.setAttribute('aria-selected', String(isStats));
-  tabOpenDeals.setAttribute('aria-selected', String(!isStats));
+  tabOpenDeals.setAttribute('aria-selected', String(isOpenDeals));
+  tabSettings.setAttribute('aria-selected', String(isSettings));
   panelStats.classList.toggle('tab-panel--active', isStats);
-  panelOpenDeals.classList.toggle('tab-panel--active', !isStats);
+  panelOpenDeals.classList.toggle('tab-panel--active', isOpenDeals);
+  panelSettings.classList.toggle('tab-panel--active', isSettings);
   panelStats.hidden = !isStats;
-  panelOpenDeals.hidden = isStats;
+  panelOpenDeals.hidden = !isOpenDeals;
+  panelSettings.hidden = !isSettings;
+
+  if (!isOpenDeals) {
+    closePositionActionMenu();
+  }
 }
 
 function formatCompactUsd(value) {
@@ -651,9 +816,232 @@ function getPositionPnlPercent(position) {
   return null;
 }
 
+function countDecimals(value) {
+  if (value === null || value === undefined || value === '') return 0;
+  const str = String(value).trim();
+  if (!str || str.includes('e') || str.includes('E')) return 0;
+  const dotIndex = str.indexOf('.');
+  return dotIndex >= 0 ? str.length - dotIndex - 1 : 0;
+}
+
+function getPricePrecision(position) {
+  const instrumentPrecision = Number(position?.pricePrecision);
+  if (Number.isFinite(instrumentPrecision) && instrumentPrecision >= 0) {
+    return Math.min(10, Math.max(0, Math.floor(instrumentPrecision)));
+  }
+
+  const precision = Math.max(
+    countDecimals(position?.openPrice),
+    countDecimals(position?.stopLossPrice),
+    countDecimals(position?.stopProfitPrice),
+    countDecimals(position?.currentPrice),
+    countDecimals(position?.markPrice),
+    countDecimals(position?.lastPrice),
+    2
+  );
+  return Math.min(8, precision);
+}
+
+function formatRequestPrice(value, precision) {
+  return value.toFixed(precision).replace(/\.?0+$/, '');
+}
+
+function getPositionId(position) {
+  const candidate = position?.positionId ?? position?.idStr;
+  if (candidate === null || candidate === undefined || candidate === '') {
+    return null;
+  }
+  return String(candidate);
+}
+
+function getStopId(position) {
+  const candidate = position?.allStopId ?? position?.id;
+  if (candidate === null || candidate === undefined || candidate === '') {
+    return null;
+  }
+  return String(candidate);
+}
+
+function hasExistingStops(position) {
+  const sl = Number(position?.stopLossPrice);
+  const tp = Number(position?.stopProfitPrice);
+  return (Number.isFinite(sl) && sl > 0) || (Number.isFinite(tp) && tp > 0);
+}
+
+function buildDefaultStops(position) {
+  const openPrice = Number(position?.openPrice);
+  const direction = String(position?.direction || '').toLowerCase();
+  const positionId = getPositionId(position);
+  const stopId = getStopId(position);
+
+  if (!Number.isFinite(openPrice) || openPrice <= 0) {
+    throw new Error(t('settingsActionMissingPrice'));
+  }
+
+  const precision = getPricePrecision(position);
+  const isShort = direction === 'short';
+  const slMultiplier = isShort
+    ? 1 + sltpSettings.slPercent / 100
+    : 1 - sltpSettings.slPercent / 100;
+  const tpMultiplier = isShort
+    ? 1 - sltpSettings.tpPercent / 100
+    : 1 + sltpSettings.tpPercent / 100;
+  const stopLossPrice = openPrice * slMultiplier;
+  const stopProfitPrice = openPrice * tpMultiplier;
+
+  return {
+    positionId,
+    stopId,
+    stopLossPrice,
+    stopProfitPrice,
+    payload: {
+      instrument: String(position?.instrument || '').toUpperCase(),
+      stopType: 1,
+      stopProfitWorkingType: 'CONTRACT_PRICE',
+      stopLossWorkingType: 'CONTRACT_PRICE',
+      stopProfitWorkingPrice: formatRequestPrice(stopProfitPrice, precision),
+      stopProfitTriggerPrice: '',
+      stopProfitTriggerType: 'MARKET',
+      stopLossWorkingPrice: formatRequestPrice(stopLossPrice, precision),
+      stopLossTriggerPrice: '',
+      stopLossTriggerType: 'MARKET',
+      id: stopId,
+      allStopId: stopId,
+      positionId,
+      idStr: positionId,
+    },
+  };
+}
+
+function closePositionActionMenu() {
+  if (selectedPositionContext?.rowElement) {
+    selectedPositionContext.rowElement.classList.remove('pos-row--active');
+  }
+  selectedPositionContext = null;
+  if (positionActionMenu) {
+    positionActionMenu.hidden = true;
+  }
+}
+
+function positionMenuCoords(rowElement) {
+  const rect = rowElement.getBoundingClientRect();
+  const menuWidth = 240;
+  const left = Math.min(window.innerWidth - menuWidth - 12, Math.max(12, rect.left));
+  const desiredTop = rect.bottom + 6;
+  const top = Math.min(window.innerHeight - 132, Math.max(12, desiredTop));
+  return { left, top };
+}
+
+function renderPositionActionMenu() {
+  if (!selectedPositionContext || !positionActionMenu) {
+    return;
+  }
+
+  const { position, rowElement } = selectedPositionContext;
+  let preview;
+  try {
+    preview = buildDefaultStops(position);
+  } catch (error) {
+    closePositionActionMenu();
+    showError(error?.message || t('settingsActionMissing'));
+    return;
+  }
+  const coords = positionMenuCoords(rowElement);
+
+  rowElement.classList.add('pos-row--active');
+  positionActionMeta.textContent = `${String(position?.instrument || '').toUpperCase()} • ${String(position?.direction || '').toUpperCase()}`;
+  positionActionPrices.innerHTML = `<strong>${t('settingsSl')}:</strong> ${formatPrice(preview.stopLossPrice)} (${sltpSettings.slPercent}%)<br><strong>${t('settingsTp')}:</strong> ${formatPrice(preview.stopProfitPrice)} (${sltpSettings.tpPercent}%)`;
+  positionActionMenu.style.left = `${coords.left}px`;
+  positionActionMenu.style.top = `${coords.top}px`;
+  positionActionMenu.hidden = false;
+}
+
+function openPositionActionMenu(position, rowElement) {
+  if (selectedPositionContext?.rowElement === rowElement && !positionActionMenu.hidden) {
+    closePositionActionMenu();
+    return;
+  }
+
+  if (selectedPositionContext?.rowElement) {
+    selectedPositionContext.rowElement.classList.remove('pos-row--active');
+  }
+
+  selectedPositionContext = { position, rowElement };
+  hideError();
+  renderPositionActionMenu();
+}
+
+function exportSettings() {
+  const blob = new Blob([JSON.stringify(sltpSettings, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = SETTINGS_EXPORT_FILENAME;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  setStatus('ok', t('settingsExported'));
+}
+
+async function importSettings(file) {
+  const content = await file.text();
+  sltpSettings = normalizeSltpSettings(JSON.parse(content));
+  persistSltpSettings();
+  renderSltpSettings();
+  if (selectedPositionContext) {
+    renderPositionActionMenu();
+  }
+  setStatus('ok', t('settingsImported'));
+}
+
+async function applyDefaultStopsToSelectedPosition() {
+  if (!selectedPositionContext) {
+    return;
+  }
+
+  const { position } = selectedPositionContext;
+  const isUpdate = hasExistingStops(position);
+  btnApplyDefaultStops.disabled = true;
+
+  try {
+    const request = buildDefaultStops(position);
+
+    if (isUpdate && !request.stopId) {
+      throw new Error(t('settingsActionMissing'));
+    }
+
+    if (!isUpdate && !request.positionId) {
+      throw new Error(t('settingsActionMissingId'));
+    }
+
+    const response = await chrome.runtime.sendMessage({
+      type: 'UPSERT_POSITION_SLTP',
+      locale,
+      payload: request.payload,
+      hasExistingStops: isUpdate,
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || t('settingsActionFailed'));
+    }
+
+    closePositionActionMenu();
+    setStatus('ok', t('settingsActionSuccess'));
+    showSuccess(t('settingsActionSuccess'));
+    await loadData({}, { forceRefresh: true, minFreshMs: 0 });
+  } catch (error) {
+    setStatus('error', t('settingsActionFailed'));
+    showError(error?.message || t('settingsActionFailed'));
+  } finally {
+    btnApplyDefaultStops.disabled = false;
+  }
+}
+
 function renderOpenPositions(openPositions) {
   const rows = Array.isArray(openPositions) ? openPositions : [];
   openDealsCount.textContent = String(rows.length);
+  closePositionActionMenu();
 
   if (!rows.length) {
     positionsWrap.innerHTML = '';
@@ -723,6 +1111,8 @@ function renderOpenPositions(openPositions) {
     const directionArrow = isLong ? '⬆' : isShort ? '⬇' : '•';
 
     const tr = document.createElement('tr');
+    tr.className = 'pos-row--interactive';
+    tr.tabIndex = 0;
     tr.innerHTML = `
       <td class="pos-col--direction"><span class="${directionClass}">${directionArrow}</span></td>
       <td class="pos-instrument">${String(pos?.instrument || '').toUpperCase()}</td>
@@ -736,6 +1126,16 @@ function renderOpenPositions(openPositions) {
       </td>
       <td class="pos-col--risk ${riskClass}" title="${riskTitle}" aria-label="${riskTitle}">${riskMark}</td>
     `;
+    tr.addEventListener('click', (event) => {
+      event.stopPropagation();
+      openPositionActionMenu(pos, tr);
+    });
+    tr.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openPositionActionMenu(pos, tr);
+      }
+    });
     tbody.appendChild(tr);
   }
 
@@ -846,10 +1246,66 @@ applyStaticTexts();
 btnLang.addEventListener('click', toggleLocale);
 tabStats.addEventListener('click', () => switchTab('stats'));
 tabOpenDeals.addEventListener('click', () => switchTab('openDeals'));
+tabSettings.addEventListener('click', () => switchTab('settings'));
 if (btnReloadTab) {
   btnReloadTab.addEventListener('click', reloadTradeTab);
 }
+if (slRange) {
+  slRange.addEventListener('input', (event) => updateSltpSetting('slPercent', event.target.value));
+}
+if (tpRange) {
+  tpRange.addEventListener('input', (event) => updateSltpSetting('tpPercent', event.target.value));
+}
+if (btnExportSettings) {
+  btnExportSettings.addEventListener('click', exportSettings);
+}
+if (btnImportSettings && settingsImportInput) {
+  btnImportSettings.addEventListener('click', () => settingsImportInput.click());
+  settingsImportInput.addEventListener('change', async (event) => {
+    const [file] = event.target.files || [];
+    if (!file) {
+      return;
+    }
+
+    try {
+      await importSettings(file);
+    } catch (error) {
+      setStatus('error', t('settingsImportError'));
+      showError(error?.message || t('settingsImportError'));
+    } finally {
+      settingsImportInput.value = '';
+    }
+  });
+}
+if (btnApplyDefaultStops) {
+  btnApplyDefaultStops.addEventListener('click', (event) => {
+    event.stopPropagation();
+    void applyDefaultStopsToSelectedPosition();
+  });
+}
 btnRefresh.addEventListener('click', () => loadData({}, { forceRefresh: true, minFreshMs: 0 }));
+document.addEventListener('click', (event) => {
+  if (positionActionMenu.hidden) {
+    return;
+  }
+
+  const target = event.target instanceof Element ? event.target : null;
+
+  if (target && positionActionMenu.contains(target)) {
+    return;
+  }
+
+  if (target && target.closest('.pos-row--interactive')) {
+    return;
+  }
+
+  closePositionActionMenu();
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    closePositionActionMenu();
+  }
+});
 document.addEventListener('DOMContentLoaded', () => {
   switchTab(activeTab);
   startRefreshCountdown();

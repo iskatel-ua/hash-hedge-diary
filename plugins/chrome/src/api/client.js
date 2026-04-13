@@ -33,7 +33,26 @@ export function extractOpenPositions(data) {
     data?.data?.data?.userPositions ||
     data?.userPositions ||
     data?.result?.userPositions;
-  return Array.isArray(positions) ? positions : [];
+  if (!Array.isArray(positions)) {
+    return [];
+  }
+
+  return positions.map((position) => {
+    const rawPositionId = position?.idStr;
+    const rawStopId = position?.allStopId;
+    const normalizedPositionId = rawPositionId === null || rawPositionId === undefined || rawPositionId === ''
+      ? undefined
+      : String(rawPositionId);
+    const normalizedStopId = rawStopId === null || rawStopId === undefined || rawStopId === ''
+      ? undefined
+      : String(rawStopId);
+
+    return {
+      ...position,
+      ...(normalizedPositionId ? { positionId: normalizedPositionId } : {}),
+      ...(normalizedStopId ? { allStopId: normalizedStopId, id: normalizedStopId } : {}),
+    };
+  });
 }
 
 /**

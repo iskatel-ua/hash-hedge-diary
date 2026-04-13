@@ -24,6 +24,8 @@ const AUTH_WAIT_TIMEOUT_MS = 12_000;
 const TAB_RELOAD_TIMEOUT_MS = 15_000;
 const BACKGROUND_REFRESH_INTERVAL_MINUTES = 5;
 const BACKGROUND_REFRESH_INTERVAL_MS = BACKGROUND_REFRESH_INTERVAL_MINUTES * 60_000;
+const STOP_PROFIT_LOSS_ADD_URL = 'https://cb.hashhedge.com/v1/cfd/stop/profit/loss/add';
+const STOP_PROFIT_LOSS_UPDATE_URL = 'https://cb.hashhedge.com/v1/cfd/stop/profit/loss/update';
 const TRADE_CACHE_STORAGE_KEY = 'tradeDataCacheV1';
 const BACKGROUND_REFRESH_ALARM = 'hashhedge-refresh-default';
 const DEFAULT_FILTERS = {};
@@ -326,6 +328,7 @@ function enrichOpenPositionsWithPrices(positions, instrumentsByKey) {
       currentPrice: match.markPrice ?? match.lastPrice ?? null,
       markPrice: match.markPrice ?? null,
       lastPrice: match.lastPrice ?? null,
+      pricePrecision: Number(match.pricePrecision),
     };
   });
 }
@@ -387,7 +390,308 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
     getRefreshStatus().then(sendResponse);
     return true;
   }
+
+  if (request.type === 'UPSERT_POSITION_SLTP') {
+    upsertPositionStopProfitLoss(request.payload, Boolean(request.hasExistingStops), request.locale).then(sendResponse);
+    return true;
+  }
 });
+
+function createJsonHeaders(headers) {
+  return {
+    ...headers,
+    Accept: 'application/json, text/plain, */*',
+    'Content-Type': 'application/json',
+  };
+}
+
+async function parseResponseBody(response) {
+  const text = await response.text();
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    return text;
+  }
+}
+
+function collectErrorDetails(value, sink = new Set(), depth = 0) {
+  if (!value || depth > 3) {
+    return sink;
+  }
+
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (text) {
+      sink.add(text);
+    }
+    return sink;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectErrorDetails(item, sink, depth + 1);
+    }
+    return sink;
+  }
+
+  if (typeof value === 'object') {
+    const field = value.field || value.fields || value.parameter || value.param || value.name || value.key;
+    const message = value.message || value.msg || value.error || value.reason || value.description;
+
+    if (field && message) {
+      sink.add(`${field}: ${message}`);
+    } else if (field) {
+      sink.add(String(field));
+    } else if (message) {
+      sink.add(String(message));
+    }
+
+    for (const key of ['details', 'errors', 'errorFields', 'fieldErrors', 'violations', 'data']) {
+      if (key in value) {
+        collectErrorDetails(value[key], sink, depth + 1);
+      }
+    }
+  }
+
+  return sink;
+}
+
+function getResponseErrorMessage(body, fallback) {
+  if (!body) {
+    return fallback;
+  }
+
+  if (typeof body === 'string') {
+    return body;
+  }
+
+  const baseMessage = body.message || body.msg || body.error || body.data?.message || fallback;
+  const code = body.code ?? body.status ?? body.errorCode;
+  const details = [...collectErrorDetails(body)].filter((entry) => entry !== baseMessage);
+  const parts = [baseMessage];
+
+  if (code !== undefined && code !== null && code !== '') {
+    parts.push(`code: ${code}`);
+  }
+
+  if (details.length) {
+    parts.push(`details: ${details.join('; ')}`);
+  }
+
+  return parts.join(' | ');
+}
+
+function isExplicitApiFailure(body) {
+  if (!body || typeof body !== 'object') {
+    return false;
+  }
+
+  if (body.success === false || body.ok === false) {
+    return true;
+  }
+
+  const code = Number(body.code);
+  return Number.isFinite(code) && code !== 0 && code !== 200;
+}
+
+function hasStopsConfigured(position) {
+  const sl = Number(position?.stopLossPrice);
+  const tp = Number(position?.stopProfitPrice);
+  return (Number.isFinite(sl) && sl > 0) || (Number.isFinite(tp) && tp > 0);
+}
+
+function findOpenPositionForPayload(positions, payload) {
+  if (!Array.isArray(positions) || !positions.length) {
+    return null;
+  }
+
+  const candidates = new Set([
+    payload?.positionId,
+    payload?.idStr,
+    payload?.id,
+    payload?.allStopId,
+  ].filter((value) => value !== null && value !== undefined && String(value).trim() !== '').map((value) => String(value).trim()));
+
+  if (!candidates.size) {
+    return null;
+  }
+
+  for (const position of positions) {
+    const positionKeys = [
+      position?.positionId,
+      position?.idStr,
+      position?.id,
+      position?.allStopId,
+    ]
+      .filter((value) => value !== null && value !== undefined && String(value).trim() !== '')
+      .map((value) => String(value).trim());
+
+    if (positionKeys.some((key) => candidates.has(key))) {
+      return position;
+    }
+  }
+
+  return null;
+}
+
+async function upsertPositionStopProfitLoss(payload, hasExistingStops, locale) {
+  try {
+    let headers = await buildAuthHeaders();
+
+    if (!hasAuthHeaders(headers)) {
+      headers = await refreshAuthContext(true);
+    }
+
+    if (!hasAuthHeaders(headers)) {
+      return {
+        ok: false,
+        error: t(locale, 'noAuthHeaders'),
+      };
+    }
+
+    const fetchOpenPositions = async (requestHeaders) => {
+      const response = await fetch(OPEN_POSITIONS_URL, {
+        credentials: 'include',
+        headers: requestHeaders,
+      });
+
+      let positions = [];
+      if (response.ok) {
+        positions = extractOpenPositions(await response.json());
+      }
+
+      return { response, positions };
+    };
+
+    let openPositionsResult = await fetchOpenPositions(headers);
+
+    if (openPositionsResult.response.status === 401 || openPositionsResult.response.status === 403) {
+      headers = await refreshAuthContext(false);
+      if (hasAuthHeaders(headers)) {
+        openPositionsResult = await fetchOpenPositions(headers);
+      }
+    }
+
+    if (!openPositionsResult.response.ok) {
+      return {
+        ok: false,
+        error: t(locale, 'apiAuthHint', openPositionsResult.response.status, openPositionsResult.response.statusText),
+      };
+    }
+
+    const matchedPosition = findOpenPositionForPayload(openPositionsResult.positions, payload);
+    if (!matchedPosition) {
+      return {
+        ok: false,
+        error: 'Position was not found in fresh open positions list',
+      };
+    }
+
+    const resolvedHasExistingStops = hasStopsConfigured(matchedPosition);
+
+    const endpoint = resolvedHasExistingStops ? STOP_PROFIT_LOSS_UPDATE_URL : STOP_PROFIT_LOSS_ADD_URL;
+    const resolvedPositionId = String(
+      matchedPosition?.positionId ?? matchedPosition?.idStr ?? payload?.positionId ?? payload?.idStr ?? ''
+    ).trim();
+    const resolvedStopId = String(
+      matchedPosition?.id ?? matchedPosition?.allStopId ?? payload?.id ?? payload?.allStopId ?? ''
+    ).trim();
+
+    if (resolvedHasExistingStops && !resolvedStopId) {
+      return {
+        ok: false,
+        error: 'Update requires id (allStopId)',
+      };
+    }
+
+    if (!resolvedHasExistingStops && !resolvedPositionId) {
+      return {
+        ok: false,
+        error: 'Add requires positionId (idStr)',
+      };
+    }
+
+    const requestPayload = {
+      instrument: payload?.instrument,
+      stopType: payload?.stopType,
+      stopProfitWorkingType: payload?.stopProfitWorkingType,
+      stopLossWorkingType: payload?.stopLossWorkingType,
+      stopProfitWorkingPrice: payload?.stopProfitWorkingPrice,
+      stopProfitTriggerPrice: payload?.stopProfitTriggerPrice,
+      stopProfitTriggerType: payload?.stopProfitTriggerType,
+      stopLossWorkingPrice: payload?.stopLossWorkingPrice,
+      stopLossTriggerPrice: payload?.stopLossTriggerPrice,
+      stopLossTriggerType: payload?.stopLossTriggerType,
+      ...(resolvedHasExistingStops ? { id: resolvedStopId } : { positionId: resolvedPositionId }),
+    };
+
+    const executeRequest = async (requestHeaders) => {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        credentials: 'include',
+        headers: createJsonHeaders(requestHeaders),
+        body: JSON.stringify(requestPayload),
+      });
+
+      const body = await parseResponseBody(response);
+      return { response, body };
+    };
+
+    let result = await executeRequest(headers);
+
+    if (result.response.status === 401 || result.response.status === 403) {
+      headers = await refreshAuthContext(false);
+      if (hasAuthHeaders(headers)) {
+        result = await executeRequest(headers);
+      }
+    }
+
+    if (!result.response.ok) {
+      console.warn('[HashHedge] SL/TP request failed:', {
+        endpoint,
+        status: result.response.status,
+        payload: requestPayload,
+        body: result.body,
+      });
+      return {
+        ok: false,
+        error: getResponseErrorMessage(
+          result.body,
+          t(locale, 'apiAuthHint', result.response.status, result.response.statusText)
+        ),
+      };
+    }
+
+    if (isExplicitApiFailure(result.body)) {
+      console.warn('[HashHedge] SL/TP request returned API error:', {
+        endpoint,
+        payload: requestPayload,
+        body: result.body,
+      });
+      return {
+        ok: false,
+        error: getResponseErrorMessage(result.body, t(locale, 'unknownError')),
+      };
+    }
+
+    void refreshDefaultTradeData('stop-profit-loss-upsert');
+
+    return {
+      ok: true,
+      data: result.body,
+      endpoint,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error?.message || t(locale, 'unknownError'),
+    };
+  }
+}
 
 /**
  * Extract trades from various API response formats
@@ -410,7 +714,26 @@ function extractOpenPositions(data) {
     data?.data?.data?.userPositions ||
     data?.userPositions ||
     data?.result?.userPositions;
-  return Array.isArray(positions) ? positions : [];
+  if (!Array.isArray(positions)) {
+    return [];
+  }
+
+  return positions.map((position) => {
+    const rawPositionId = position?.idStr;
+    const rawStopId = position?.allStopId;
+    const normalizedPositionId = rawPositionId === null || rawPositionId === undefined || rawPositionId === ''
+      ? undefined
+      : String(rawPositionId);
+    const normalizedStopId = rawStopId === null || rawStopId === undefined || rawStopId === ''
+      ? undefined
+      : String(rawStopId);
+
+    return {
+      ...position,
+      ...(normalizedPositionId ? { positionId: normalizedPositionId } : {}),
+      ...(normalizedStopId ? { allStopId: normalizedStopId, id: normalizedStopId } : {}),
+    };
+  });
 }
 
 function extractPublicInstruments(data) {

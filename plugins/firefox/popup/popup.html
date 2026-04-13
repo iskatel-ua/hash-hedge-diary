@@ -28,10 +28,12 @@
       <span id="tabOpenDealsLabel">Позиции</span>
       <span class="tab-btn__count" id="openDealsCount">0</span>
     </button>
+    <button class="tab-btn" id="tabSettings" role="tab" aria-selected="false" aria-controls="panelSettings" type="button"><span id="tabSettingsLabel">Настройки</span></button>
   </div>
 
   <!-- Error message -->
   <div class="error-msg" id="errorMsg"></div>
+  <div class="success-msg" id="successMsg"></div>
 
   <section class="tab-panel tab-panel--active" id="panelStats" role="tabpanel" aria-labelledby="tabStats">
     <!-- Metrics grid — populated by popup.js -->
@@ -59,6 +61,45 @@
     <div class="positions-wrap" id="positionsWrap"></div>
     <div class="positions-empty" id="positionsEmpty">Позиции не найдены</div>
   </section>
+
+  <section class="tab-panel" id="panelSettings" role="tabpanel" aria-labelledby="tabSettings" hidden>
+    <div class="settings-panel">
+      <div class="settings-card">
+        <div class="settings-card__title" id="settingsTitle">SL / TP</div>
+
+        <label class="settings-range" for="slRange">
+          <span class="settings-range__head">
+            <span id="slRangeLabel">SL</span>
+            <strong id="slRangeValue">1%</strong>
+          </span>
+          <span class="settings-range__sub" id="slRangeHint">Процент от цены входа</span>
+          <input id="slRange" type="range" min="1" max="15" step="1" value="1" />
+        </label>
+
+        <label class="settings-range" for="tpRange">
+          <span class="settings-range__head">
+            <span id="tpRangeLabel">TP</span>
+            <strong id="tpRangeValue">1%</strong>
+          </span>
+          <span class="settings-range__sub" id="tpRangeHint">Процент от цены входа</span>
+          <input id="tpRange" type="range" min="1" max="50" step="1" value="1" />
+        </label>
+      </div>
+
+      <div class="settings-actions">
+        <button class="btn-settings" id="btnExportSettings" type="button">Экспорт JSON</button>
+        <button class="btn-settings" id="btnImportSettings" type="button">Импорт JSON</button>
+        <input id="settingsImportInput" type="file" accept="application/json,.json" hidden />
+      </div>
+    </div>
+  </section>
+
+  <div class="position-action-menu" id="positionActionMenu" hidden>
+    <div class="position-action-menu__title" id="positionActionTitle">SL / TP</div>
+    <div class="position-action-menu__meta" id="positionActionMeta"></div>
+    <div class="position-action-menu__prices" id="positionActionPrices"></div>
+    <button class="btn-settings btn-settings--primary" id="btnApplyDefaultStops" type="button">Задать SL / TP по умолчанию</button>
+  </div>
 
   <!-- Footer -->
   <footer class="footer">
