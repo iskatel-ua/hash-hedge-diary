@@ -2,9 +2,11 @@
 'use strict';
 
 const LOCALE_STORAGE_KEY = 'hhd_locale';
+const POPUP_AUTO_REFRESH_MS = 60_000;
 let locale = getInitialLocale();
 let lastRenderState = null;
-let lastUpdatedAt = null;
+let activeTab = 'stats';
+let autoRefreshTimerId = null;
 
 const I18N = {
   en: {
@@ -13,10 +15,22 @@ const I18N = {
     donateTitle: 'Open support page',
     initialising: 'Initialising…',
     loading: 'Loading…',
-    updated: 'Updated',
     error: 'Error',
     refresh: 'Refresh',
     tradesWord: 'trades',
+    tabStats: 'Stats',
+    tabOpenDeals: 'Open deals',
+    positionsEmpty: 'No open positions',
+    positionsInstrument: 'Instrument',
+    positionsVolume: 'Volume',
+    positionsState: 'State',
+    positionsStops: 'SL / TP',
+    positionsRisk: '!',
+    positionsNoSl: 'No SL',
+    positionsNoTp: 'No TP',
+    positionsSl: 'SL',
+    positionsTp: 'TP',
+    positionsNotSet: '—',
     noResponse: 'No response from background. Extension may need reloading.',
     unknownError: 'Unknown error',
     noMessage: 'No error message',
@@ -60,10 +74,22 @@ const I18N = {
     donateTitle: 'Открыть страницу поддержки',
     initialising: 'Инициализация…',
     loading: 'Загрузка…',
-    updated: 'Обновлено',
     error: 'Ошибка',
     refresh: 'Обновить',
     tradesWord: 'сделок',
+    tabStats: 'Статистика',
+    tabOpenDeals: 'Открытые сделки',
+    positionsEmpty: 'Открытых позиций нет',
+    positionsInstrument: 'Инстр.',
+    positionsVolume: 'Объём',
+    positionsState: 'Сост.',
+    positionsStops: 'SL / TP',
+    positionsRisk: '!',
+    positionsNoSl: 'Нет SL',
+    positionsNoTp: 'Нет TP',
+    positionsSl: 'SL',
+    positionsTp: 'TP',
+    positionsNotSet: '—',
     noResponse: 'Нет ответа от background. Возможно, нужно перезагрузить расширение.',
     unknownError: 'Неизвестная ошибка',
     noMessage: 'Нет текста ошибки',
@@ -132,13 +158,10 @@ function toggleLocale() {
 
   if (lastRenderState) {
     renderMetrics(lastRenderState.metrics, lastRenderState.filteredCount, lastRenderState.rawCount);
+    renderOpenPositions(lastRenderState.openPositions || []);
   }
 
-  if (lastUpdatedAt) {
-    setStatus('ok', `${t('updated')} ${formatTime(lastUpdatedAt)}`);
-  } else {
-    setStatus('ok', `${t('switchedTo')} ${t('currentLanguageName')}`);
-  }
+  setStatus('ok', `${t('switchedTo')} ${t('currentLanguageName')}`);
 }
 
 function t(key) {
@@ -156,20 +179,18 @@ function metricHelp(id) {
   return local.metricHelp?.[id] || '';
 }
 
-function formatTime(date) {
-  const localeTag = locale === 'ru' ? 'ru-RU' : 'en-US';
-  return date.toLocaleTimeString(localeTag, {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-}
-
 // ── DOM references ────────────────────────────────────────────────
-const statusDot  = document.getElementById('statusDot');
-const statusText = document.getElementById('statusText');
 const errorMsg   = document.getElementById('errorMsg');
 const metricsGrid = document.getElementById('metricsGrid');
+const tabStats = document.getElementById('tabStats');
+const tabOpenDeals = document.getElementById('tabOpenDeals');
+const tabStatsLabel = document.getElementById('tabStatsLabel');
+const tabOpenDealsLabel = document.getElementById('tabOpenDealsLabel');
+const panelStats = document.getElementById('panelStats');
+const panelOpenDeals = document.getElementById('panelOpenDeals');
+const openDealsCount = document.getElementById('openDealsCount');
+const positionsWrap = document.getElementById('positionsWrap');
+const positionsEmpty = document.getElementById('positionsEmpty');
 const btnRefresh  = document.getElementById('btnRefresh');
 const tradeCount  = document.getElementById('tradeCount');
 const headerTitle = document.querySelector('.header__title');
@@ -179,8 +200,10 @@ const btnDonate = document.getElementById('btnDonate');
 
 // ── Status helpers ─────────────────────────────────────────────────
 function setStatus(state, text) {
-  statusDot.className  = `status-dot ${state}`;
-  statusText.textContent = text;
+  document.body.dataset.state = state;
+  if (text) {
+    btnRefresh.title = text;
+  }
 }
 
 function showError(msg) {
@@ -214,11 +237,13 @@ function applyStaticTexts() {
     btnDonate.title = t('donateTitle');
     btnDonate.setAttribute('aria-label', t('donateTitle'));
   }
+  if (tabStatsLabel) tabStatsLabel.textContent = t('tabStats');
+  if (tabOpenDealsLabel) tabOpenDealsLabel.textContent = t('tabOpenDeals');
+  if (positionsEmpty) positionsEmpty.textContent = t('positionsEmpty');
   setStatus('loading', t('initialising'));
 }
 
 function renderMetrics(metrics, filteredCount, rawCount) {
-  lastRenderState = { metrics, filteredCount, rawCount };
   metricsGrid.innerHTML = '';
 
   for (const m of metrics) {
@@ -396,6 +421,218 @@ function renderMetrics(metrics, filteredCount, rawCount) {
   }
 }
 
+function switchTab(tabId) {
+  activeTab = tabId;
+  const isStats = tabId === 'stats';
+  tabStats.classList.toggle('tab-btn--active', isStats);
+  tabOpenDeals.classList.toggle('tab-btn--active', !isStats);
+  tabStats.setAttribute('aria-selected', String(isStats));
+  tabOpenDeals.setAttribute('aria-selected', String(!isStats));
+  panelStats.classList.toggle('tab-panel--active', isStats);
+  panelOpenDeals.classList.toggle('tab-panel--active', !isStats);
+  panelStats.hidden = !isStats;
+  panelOpenDeals.hidden = isStats;
+}
+
+function formatCompactUsd(value) {
+  const amount = Number(value) || 0;
+  const abs = Math.abs(amount);
+
+  if (abs >= 1_000_000_000) return `${trimDecimal(amount / 1_000_000_000)}B`;
+  if (abs >= 1_000_000) return `${trimDecimal(amount / 1_000_000)}M`;
+  if (abs >= 1_000) return `${trimDecimal(amount / 1_000)}K`;
+  return trimDecimal(amount);
+}
+
+function trimDecimal(value) {
+  const abs = Math.abs(value);
+  const fixed = abs >= 100 ? value.toFixed(0) : value.toFixed(1);
+  return fixed.replace(/\.0$/, '');
+}
+
+function formatSignedPercent(value) {
+  const num = Number(value) || 0;
+  const sign = num > 0 ? '+' : '';
+  return `${sign}${trimDecimal(num)}%`;
+}
+
+function formatPositionPercent(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return t('positionsNotSet');
+
+  const sign = num > 0 ? '+' : '';
+  return `${sign}${num.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1')}%`;
+}
+
+function formatPrice(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return t('positionsNotSet');
+  return num.toLocaleString(locale === 'ru' ? 'ru-RU' : 'en-US', {
+    maximumFractionDigits: 2,
+  });
+}
+
+function estimateVolumeUsd(position) {
+  const baseSize = Number(position?.baseSize);
+  const openPrice = Number(position?.openPrice);
+  const margin = Number(position?.margin);
+  const leverage = Number(position?.leverage) || 1;
+
+  if (Number.isFinite(baseSize) && Number.isFinite(openPrice) && baseSize > 0 && openPrice > 0) {
+    return baseSize * openPrice;
+  }
+  if (Number.isFinite(margin) && margin > 0) {
+    return margin * leverage;
+  }
+  return 0;
+}
+
+function getPositionCurrentPrice(position) {
+  const candidates = [
+    position?.currentPrice,
+    position?.markPrice,
+    position?.lastPrice,
+  ];
+
+  for (const value of candidates) {
+    const price = Number(value);
+    if (Number.isFinite(price) && price > 0) {
+      return price;
+    }
+  }
+
+  return null;
+}
+
+function getPositionPnlPercent(position) {
+  const margin = Number(position?.positionMargin ?? position?.margin);
+  const openPrice = Number(position?.openPrice);
+  const currentPrice = getPositionCurrentPrice(position);
+  const direction = String(position?.direction || '').toLowerCase();
+  const directionSign = direction === 'short' ? -1 : direction === 'long' ? 1 : 0;
+  const baseSize = Math.abs(Number(position?.baseSize));
+
+  if (
+    Number.isFinite(openPrice) &&
+    openPrice > 0 &&
+    Number.isFinite(currentPrice) &&
+    currentPrice > 0 &&
+    directionSign &&
+    Number.isFinite(baseSize) &&
+    baseSize > 0 &&
+    Number.isFinite(margin) &&
+    margin > 0
+  ) {
+    const pnl = (currentPrice - openPrice) * baseSize * directionSign;
+    return (pnl / margin) * 100;
+  }
+
+  const leverage = Number(position?.leverage);
+  if (
+    Number.isFinite(openPrice) &&
+    openPrice > 0 &&
+    Number.isFinite(currentPrice) &&
+    currentPrice > 0 &&
+    directionSign &&
+    Number.isFinite(leverage) &&
+    leverage > 0
+  ) {
+    return (((currentPrice - openPrice) / openPrice) * leverage * 100) * directionSign;
+  }
+
+  const explicitPnl = Number(position?.profitUnreal);
+  if (Number.isFinite(explicitPnl) && Number.isFinite(margin) && margin > 0) {
+    return (explicitPnl / margin) * 100;
+  }
+
+  return null;
+}
+
+function renderOpenPositions(openPositions) {
+  const rows = Array.isArray(openPositions) ? openPositions : [];
+  openDealsCount.textContent = String(rows.length);
+
+  if (!rows.length) {
+    positionsWrap.innerHTML = '';
+    positionsWrap.style.display = 'none';
+    positionsEmpty.classList.add('visible');
+    return;
+  }
+
+  positionsWrap.style.display = 'block';
+  positionsEmpty.classList.remove('visible');
+
+  const table = document.createElement('table');
+  table.className = 'positions-table';
+
+  table.innerHTML = `
+    <colgroup>
+      <col style="width:8%">
+      <col style="width:26%">
+      <col style="width:15%">
+      <col style="width:14%">
+      <col style="width:27%">
+      <col style="width:10%">
+    </colgroup>
+    <thead>
+      <tr>
+        <th class="pos-col--direction">⟲</th>
+        <th class="pos-col--instrument">${t('positionsInstrument')}</th>
+        <th class="pos-col--volume">${t('positionsVolume')}</th>
+        <th class="pos-col--state">${t('positionsState')}</th>
+        <th class="pos-col--stops">${t('positionsStops')}</th>
+        <th class="pos-col--risk">${t('positionsRisk')}</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  `;
+
+  const tbody = table.querySelector('tbody');
+  for (const pos of rows) {
+    const sl = Number(pos?.stopLossPrice);
+    const tp = Number(pos?.stopProfitPrice);
+    const hasSl = Number.isFinite(sl) && sl > 0;
+    const hasTp = Number.isFinite(tp) && tp > 0;
+    const volume = estimateVolumeUsd(pos);
+    const pnlPct = getPositionPnlPercent(pos);
+    const pnlStateClass = pnlPct > 0 ? 'pos-state--positive' : pnlPct < 0 ? 'pos-state--negative' : 'pos-state--neutral';
+    const pnlDisplay = formatPositionPercent(pnlPct);
+
+    const riskClass = !hasSl ? 'pos-risk pos-risk--danger' : (!hasTp ? 'pos-risk pos-risk--warn' : 'pos-risk');
+    const riskTitle = !hasSl ? t('positionsNoSl') : (!hasTp ? t('positionsNoTp') : '');
+    const riskMark = !hasSl || !hasTp ? '▲' : '';
+
+    const direction = String(pos?.direction || '').toLowerCase();
+    const isLong = direction === 'long';
+    const isShort = direction === 'short';
+    const directionClass = isLong
+      ? 'pos-direction pos-direction--long'
+      : isShort
+        ? 'pos-direction pos-direction--short'
+        : 'pos-direction';
+    const directionArrow = isLong ? '⬆' : isShort ? '⬇' : '•';
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="pos-col--direction"><span class="${directionClass}">${directionArrow}</span></td>
+      <td class="pos-instrument">${String(pos?.instrument || '').toUpperCase()}</td>
+      <td class="pos-volume">${formatCompactUsd(volume)}</td>
+      <td class="pos-state ${pnlStateClass}">${pnlDisplay}</td>
+      <td class="pos-col--stops">
+        <div class="pos-stops">
+          <span class="pos-stop-line"><strong>${t('positionsSl')}</strong><em>${formatPrice(sl)}</em></span>
+          <span class="pos-stop-line"><strong>${t('positionsTp')}</strong><em>${formatPrice(tp)}</em></span>
+        </div>
+      </td>
+      <td class="pos-col--risk ${riskClass}" title="${riskTitle}">${riskMark}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  positionsWrap.innerHTML = '';
+  positionsWrap.appendChild(table);
+}
+
 // ── Reload trade tab helper ───────────────────────────────────────
 async function reloadTradeTab() {
   try {
@@ -418,11 +655,7 @@ async function reloadTradeTab() {
 }
 
 // ── Main load ──────────────────────────────────────────────────────
-async function loadData(activeFilters = {}, retryAfterMs = 0) {
-  if (retryAfterMs > 0) {
-    await new Promise(resolve => setTimeout(resolve, retryAfterMs));
-  }
-
+async function loadData(activeFilters = {}) {
   hideError();
   setStatus('loading', t('loading'));
   btnRefresh.disabled = true;
@@ -438,18 +671,19 @@ async function loadData(activeFilters = {}, retryAfterMs = 0) {
       throw new Error(t('noResponse'));
     }
     if (!response.ok) {
-      // If auto-reload was attempted, retry after a delay to allow auth headers to be captured
-      if (response.attemptedAutoReload) {
-        console.log('[HashHedge] Trade tab was auto-reloaded, retrying in 2s...');
-        return loadData(activeFilters, 2000);
-      }
-      
       throw new Error(response.error || t('unknownError'));
     }
 
     renderMetrics(response.metrics, response.filteredCount, response.tradeCount);
-    lastUpdatedAt = new Date();
-    setStatus('ok', `${t('updated')} ${formatTime(lastUpdatedAt)}`);
+    const userPositions = response.userPositions || response.openPositions || [];
+    renderOpenPositions(userPositions);
+    lastRenderState = {
+      metrics: response.metrics,
+      openPositions: userPositions,
+      filteredCount: response.filteredCount,
+      rawCount: response.tradeCount,
+    };
+    setStatus('ok', `${t('refresh')}`);
   } catch (e) {
     setStatus('error', t('error'));
     showError(e?.message || t('noMessage'));
@@ -458,11 +692,33 @@ async function loadData(activeFilters = {}, retryAfterMs = 0) {
   }
 }
 
+function startAutoRefresh() {
+  if (autoRefreshTimerId !== null) {
+    clearInterval(autoRefreshTimerId);
+  }
+
+  autoRefreshTimerId = setInterval(() => {
+    if (!document.hidden) {
+      loadData();
+    }
+  }, POPUP_AUTO_REFRESH_MS);
+}
+
 // ── Boot ───────────────────────────────────────────────────────────
 applyStaticTexts();
 btnLang.addEventListener('click', toggleLocale);
+tabStats.addEventListener('click', () => switchTab('stats'));
+tabOpenDeals.addEventListener('click', () => switchTab('openDeals'));
 if (btnReloadTab) {
   btnReloadTab.addEventListener('click', reloadTradeTab);
 }
 btnRefresh.addEventListener('click', () => loadData());
-document.addEventListener('DOMContentLoaded', () => loadData());
+document.addEventListener('DOMContentLoaded', () => {
+  loadData();
+  startAutoRefresh();
+});
+window.addEventListener('beforeunload', () => {
+  if (autoRefreshTimerId !== null) {
+    clearInterval(autoRefreshTimerId);
+  }
+});

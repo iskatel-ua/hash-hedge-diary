@@ -21,34 +21,44 @@
     </div>
   </header>
 
-  <!-- Status bar -->
-  <div class="status-bar">
-    <div class="status-dot" id="statusDot"></div>
-    <span id="statusText">...</span>
+  <!-- Tabs -->
+  <div class="tabs" role="tablist" aria-label="Popup tabs">
+    <button class="tab-btn tab-btn--active" id="tabStats" role="tab" aria-selected="true" aria-controls="panelStats" type="button"><span id="tabStatsLabel">Статистика</span></button>
+    <button class="tab-btn" id="tabOpenDeals" role="tab" aria-selected="false" aria-controls="panelOpenDeals" type="button">
+      <span id="tabOpenDealsLabel">Открытые сделки</span>
+      <span class="tab-btn__count" id="openDealsCount">0</span>
+    </button>
   </div>
 
   <!-- Error message -->
   <div class="error-msg" id="errorMsg"></div>
 
-  <!-- Metrics grid — populated by popup.js -->
-  <div class="metrics-grid" id="metricsGrid">
-    <!-- Skeleton placeholders shown before data loads -->
-    <div class="metric-card">
-      <div class="metric-card__label skeleton">Win Rate</div>
-      <div class="metric-card__value skeleton">000.00%</div>
-      <div class="metric-card__sub skeleton">0 W / 0 L</div>
+  <section class="tab-panel tab-panel--active" id="panelStats" role="tabpanel" aria-labelledby="tabStats">
+    <!-- Metrics grid — populated by popup.js -->
+    <div class="metrics-grid" id="metricsGrid">
+      <!-- Skeleton placeholders shown before data loads -->
+      <div class="metric-card">
+        <div class="metric-card__label skeleton">Win Rate</div>
+        <div class="metric-card__value skeleton">000.00%</div>
+        <div class="metric-card__sub skeleton">0 W / 0 L</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-card__label skeleton">Total PNL</div>
+        <div class="metric-card__value skeleton">+0000.00</div>
+        <div class="metric-card__sub skeleton">across 0 trades</div>
+      </div>
+      <div class="metric-card metric-card--wide">
+        <div class="metric-card__label skeleton">Direction Split</div>
+        <div class="metric-card__value skeleton">0 ↑ / 0 ↓</div>
+        <div class="metric-card__sub skeleton">Total: 0</div>
+      </div>
     </div>
-    <div class="metric-card">
-      <div class="metric-card__label skeleton">Total PNL</div>
-      <div class="metric-card__value skeleton">+0000.00</div>
-      <div class="metric-card__sub skeleton">across 0 trades</div>
-    </div>
-    <div class="metric-card metric-card--wide">
-      <div class="metric-card__label skeleton">Direction Split</div>
-      <div class="metric-card__value skeleton">0 ↑ / 0 ↓</div>
-      <div class="metric-card__sub skeleton">Total: 0</div>
-    </div>
-  </div>
+  </section>
+
+  <section class="tab-panel" id="panelOpenDeals" role="tabpanel" aria-labelledby="tabOpenDeals" hidden>
+    <div class="positions-wrap" id="positionsWrap"></div>
+    <div class="positions-empty" id="positionsEmpty">Позиции не найдены</div>
+  </section>
 
   <!-- Footer -->
   <footer class="footer">

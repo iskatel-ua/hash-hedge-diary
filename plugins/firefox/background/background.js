@@ -13,13 +13,21 @@
 
 // Simplified version for Firefox compatibility (no ES modules in background)
 const API_URL = 'https://cb.hashhedge.com/v1/cfd/trade/finish?page=1&pageSize=1000&rows=1000&contractType=1&quote=usdt&marginCurrency=usdt';
+const OPEN_POSITIONS_URL = 'https://cb.hashhedge.com/v1/cfd/app/accountsCountInfo/2?positionModel=1&marginCurrency=usdt';
+const PUBLIC_INSTRUMENTS_URL = 'https://cb.hashhedge.com/v1/cfd/public/instruments?quote=all';
 
 // Storage for auth headers
 let capturedHeaders = {};
 let cachedToken = null;
+const PUBLIC_INSTRUMENTS_TTL_MS = 60_000;
 const AUTH_WAIT_TIMEOUT_MS = 12_000;
 const TAB_RELOAD_TIMEOUT_MS = 15_000;
 const authStateWaiters = new Set();
+const publicInstrumentsCache = {
+  fetchedAt: 0,
+  byKey: null,
+  pending: null,
+};
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -118,8 +126,102 @@ async function refreshAuthContext(waitForHeaders = false) {
 }
 
 async function fetchTradeResources(headers) {
-  const res = await fetch(API_URL, { credentials: 'include', headers });
-  return { res };
+  const [tradesRes, openPositionsRes, publicInstrumentsResult] = await Promise.all([
+    fetch(API_URL, { credentials: 'include', headers }),
+    fetch(OPEN_POSITIONS_URL, { credentials: 'include', headers }),
+    getPublicInstrumentsMap().catch((error) => {
+      console.warn('[HashHedge] Public instruments request failed:', error);
+      return null;
+    }),
+  ]);
+
+  return { tradesRes, openPositionsRes, publicInstrumentsResult };
+}
+
+function normalizeInstrumentKeys(instrument) {
+  const keys = new Set();
+  const name = String(instrument?.name || '').trim().toUpperCase();
+  const base = String(instrument?.base || '').trim().toUpperCase();
+  const symbol = String(instrument?.symbol || '').trim().toUpperCase();
+
+  if (name) keys.add(name);
+  if (base) keys.add(base);
+  if (symbol) keys.add(symbol);
+  return [...keys];
+}
+
+function getPositionInstrumentKeys(position) {
+  const keys = new Set();
+  const instrument = String(position?.instrument || '').trim().toUpperCase();
+  const quote = String(position?.quote || 'usdt').trim().toUpperCase();
+
+  if (instrument) {
+    keys.add(instrument);
+    keys.add(`${instrument}${quote}`);
+  }
+
+  return [...keys];
+}
+
+async function getPublicInstrumentsMap() {
+  const now = Date.now();
+  if (publicInstrumentsCache.byKey && now - publicInstrumentsCache.fetchedAt < PUBLIC_INSTRUMENTS_TTL_MS) {
+    return publicInstrumentsCache.byKey;
+  }
+
+  if (publicInstrumentsCache.pending) {
+    return publicInstrumentsCache.pending;
+  }
+
+  publicInstrumentsCache.pending = (async () => {
+    const response = await fetch(PUBLIC_INSTRUMENTS_URL);
+    if (!response.ok) {
+      throw new Error(`Public instruments request failed: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const instruments = extractPublicInstruments(data);
+    const byKey = new Map();
+
+    for (const instrument of instruments) {
+      for (const key of normalizeInstrumentKeys(instrument)) {
+        byKey.set(key, instrument);
+      }
+    }
+
+    publicInstrumentsCache.byKey = byKey;
+    publicInstrumentsCache.fetchedAt = Date.now();
+    return byKey;
+  })();
+
+  try {
+    return await publicInstrumentsCache.pending;
+  } finally {
+    publicInstrumentsCache.pending = null;
+  }
+}
+
+function enrichOpenPositionsWithPrices(positions, instrumentsByKey) {
+  if (!Array.isArray(positions) || !positions.length || !instrumentsByKey) {
+    return Array.isArray(positions) ? positions : [];
+  }
+
+  return positions.map((position) => {
+    const match = getPositionInstrumentKeys(position)
+      .map((key) => instrumentsByKey.get(key))
+      .find(Boolean);
+
+    if (!match) {
+      return position;
+    }
+
+    return {
+      ...position,
+      currentPrice: match.markPrice ?? match.lastPrice ?? null,
+      markPrice: match.markPrice ?? null,
+      lastPrice: match.lastPrice ?? null,
+    };
+  });
 }
 
 // ── Passive webRequest header capture ─────────────────────────────────────
@@ -189,6 +291,24 @@ function extractTrades(data) {
   if (data?.records && Array.isArray(data.records)) return data.records;
   if (data?.rows && Array.isArray(data.rows)) return data.rows;
   throw new Error('Unrecognised API response shape. Raw: ' + JSON.stringify(data).slice(0, 200));
+}
+
+function extractOpenPositions(data) {
+  const positions =
+    data?.data?.userPositions ||
+    data?.data?.data?.userPositions ||
+    data?.userPositions ||
+    data?.result?.userPositions;
+  return Array.isArray(positions) ? positions : [];
+}
+
+function extractPublicInstruments(data) {
+  const instruments =
+    data?.data ||
+    data?.result?.data ||
+    data?.result ||
+    data;
+  return Array.isArray(instruments) ? instruments : [];
 }
 
 // ── Metric helpers (inlined — no ES modules in Firefox background) ─────────
@@ -661,23 +781,43 @@ async function handleFetchTrades(activeFilters, locale) {
 
     console.debug('[HashHedge] Fetching with headers:', Object.keys(headers));
 
-    let { res } = await fetchTradeResources(headers);
+    let { tradesRes, openPositionsRes, publicInstrumentsResult } = await fetchTradeResources(headers);
 
-    if (res.status === 401 || res.status === 403) {
+    if (tradesRes.status === 401 || tradesRes.status === 403) {
       headers = await refreshAuthContext(false);
       if (hasAuthHeaders(headers)) {
-        ({ res } = await fetchTradeResources(headers));
+        ({ tradesRes, openPositionsRes, publicInstrumentsResult } = await fetchTradeResources(headers));
       }
     }
 
-    if (res.ok) {
-      const data = await res.json();
+    if (tradesRes.ok) {
+      const data = await tradesRes.json();
       const rawTrades = extractTrades(data);
       const metrics = computeAll(rawTrades);
-      return { ok: true, metrics, tradeCount: rawTrades.length, filteredCount: rawTrades.length };
+
+      let userPositions = [];
+      if (openPositionsRes.ok) {
+        try {
+          userPositions = extractOpenPositions(await openPositionsRes.json());
+          userPositions = enrichOpenPositionsWithPrices(userPositions, publicInstrumentsResult);
+        } catch (openPositionsError) {
+          console.warn('[HashHedge] Failed to parse open positions:', openPositionsError);
+        }
+      } else {
+        console.warn('[HashHedge] Open positions request failed:', openPositionsRes.status, openPositionsRes.statusText);
+      }
+
+      return {
+        ok: true,
+        metrics,
+        userPositions,
+        openPositions: userPositions,
+        tradeCount: rawTrades.length,
+        filteredCount: rawTrades.length,
+      };
     }
 
-    return { ok: false, error: msg(locale, 'apiAuthHint', res.status, res.statusText) };
+    return { ok: false, error: msg(locale, 'apiAuthHint', tradesRes.status, tradesRes.statusText) };
   } catch (e) {
     console.error('[HashHedge] handleFetchTrades error:', e);
     return { ok: false, error: e?.message || msg(locale, 'unknownError') };
