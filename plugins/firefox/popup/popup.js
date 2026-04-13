@@ -3,6 +3,7 @@
 
 const LOCALE_STORAGE_KEY = 'hhd_locale';
 const POPUP_AUTO_REFRESH_MS = 60_000;
+const POPUP_OPEN_REFRESH_GRACE_MS = 60_000;
 let locale = getInitialLocale();
 let lastRenderState = null;
 let activeTab = 'stats';
@@ -655,16 +656,28 @@ async function reloadTradeTab() {
 }
 
 // ── Main load ──────────────────────────────────────────────────────
-async function loadData(activeFilters = {}) {
-  hideError();
-  setStatus('loading', t('loading'));
-  btnRefresh.disabled = true;
+async function loadData(activeFilters = {}, options = {}) {
+  const {
+    forceRefresh = false,
+    minFreshMs = POPUP_OPEN_REFRESH_GRACE_MS,
+    cacheOnly = false,
+    silent = false,
+  } = options;
+
+  if (!silent) {
+    hideError();
+    setStatus('loading', t('loading'));
+    btnRefresh.disabled = true;
+  }
 
   try {
     const response = await browser.runtime.sendMessage({
       type: 'FETCH_TRADES',
       filters: activeFilters,
       locale,
+      forceRefresh,
+      minFreshMs,
+      cacheOnly,
     });
 
     if (!response) {
@@ -685,10 +698,15 @@ async function loadData(activeFilters = {}) {
     };
     setStatus('ok', `${t('refresh')}`);
   } catch (e) {
+    if (silent) {
+      return;
+    }
     setStatus('error', t('error'));
     showError(e?.message || t('noMessage'));
   } finally {
-    btnRefresh.disabled = false;
+    if (!silent) {
+      btnRefresh.disabled = false;
+    }
   }
 }
 
@@ -699,7 +717,11 @@ function startAutoRefresh() {
 
   autoRefreshTimerId = setInterval(() => {
     if (!document.hidden) {
-      loadData();
+      void loadData({}, {
+        cacheOnly: true,
+        minFreshMs: Number.MAX_SAFE_INTEGER,
+        silent: true,
+      });
     }
   }, POPUP_AUTO_REFRESH_MS);
 }
@@ -712,9 +734,9 @@ tabOpenDeals.addEventListener('click', () => switchTab('openDeals'));
 if (btnReloadTab) {
   btnReloadTab.addEventListener('click', reloadTradeTab);
 }
-btnRefresh.addEventListener('click', () => loadData());
+btnRefresh.addEventListener('click', () => loadData({}, { forceRefresh: true, minFreshMs: 0 }));
 document.addEventListener('DOMContentLoaded', () => {
-  loadData();
+  void loadData({}, { minFreshMs: POPUP_OPEN_REFRESH_GRACE_MS });
   startAutoRefresh();
 });
 window.addEventListener('beforeunload', () => {
