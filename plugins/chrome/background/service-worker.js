@@ -82,11 +82,18 @@ function t(locale, key, ...args) {
 const PUBLIC_INSTRUMENTS_TTL_MS = 60_000;
 const AUTH_WAIT_TIMEOUT_MS = 12_000;
 const TAB_RELOAD_TIMEOUT_MS = 15_000;
+const BACKGROUND_REFRESH_INTERVAL_MINUTES = 5;
+const BACKGROUND_REFRESH_INTERVAL_MS = BACKGROUND_REFRESH_INTERVAL_MINUTES * 60_000;
+const TRADE_CACHE_STORAGE_KEY = 'tradeDataCacheV1';
+const BACKGROUND_REFRESH_ALARM = 'hashhedge-refresh-default';
+const DEFAULT_FILTERS = {};
 const publicInstrumentsCache = {
   fetchedAt: 0,
   byKey: null,
   pending: null,
 };
+let tradeDataCache = null;
+const tradeDataRequests = new Map();
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -94,6 +101,88 @@ function delay(ms) {
 
 function hasAuthHeaders(headers) {
   return !!headers && Object.keys(headers).length > 0;
+}
+
+function stableStringify(value) {
+  if (value === null || value === undefined) {
+    return JSON.stringify(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+  }
+
+  if (typeof value === 'object') {
+    const entries = Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`);
+    return `{${entries.join(',')}}`;
+  }
+
+  return JSON.stringify(value);
+}
+
+function getCacheKey(activeFilters = DEFAULT_FILTERS) {
+  return stableStringify(activeFilters || DEFAULT_FILTERS);
+}
+
+async function loadTradeDataCache() {
+  if (tradeDataCache) {
+    return tradeDataCache;
+  }
+
+  const stored = await chrome.storage.local.get(TRADE_CACHE_STORAGE_KEY);
+  tradeDataCache = stored[TRADE_CACHE_STORAGE_KEY] || {};
+  return tradeDataCache;
+}
+
+async function persistTradeDataCache() {
+  if (!tradeDataCache) {
+    return;
+  }
+
+  await chrome.storage.local.set({
+    [TRADE_CACHE_STORAGE_KEY]: tradeDataCache,
+  });
+}
+
+async function getCachedTradeData(activeFilters = DEFAULT_FILTERS) {
+  const cache = await loadTradeDataCache();
+  return cache[getCacheKey(activeFilters)] || null;
+}
+
+async function setCachedTradeData(activeFilters, payload) {
+  const cache = await loadTradeDataCache();
+  const cacheKey = getCacheKey(activeFilters);
+  const entry = {
+    fetchedAt: Date.now(),
+    payload,
+  };
+
+  cache[cacheKey] = entry;
+  await persistTradeDataCache();
+  return entry;
+}
+
+function toSnapshotResponse(entry, options = {}) {
+  const { fromCache = false, stale = false, warning } = options;
+  return {
+    ...entry.payload,
+    fromCache,
+    stale,
+    warning,
+    cacheAgeMs: Math.max(0, Date.now() - entry.fetchedAt),
+    lastUpdatedAt: entry.fetchedAt,
+  };
+}
+
+function normalizeRequestOptions(options = {}) {
+  const minFreshMs = Number(options.minFreshMs);
+  return {
+    forceRefresh: Boolean(options.forceRefresh),
+    cacheOnly: Boolean(options.cacheOnly),
+    minFreshMs: Number.isFinite(minFreshMs) ? Math.max(0, minFreshMs) : 0,
+  };
 }
 
 async function getAuthHeaders() {
@@ -328,7 +417,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return true; // keep port open for async response
 
     case 'FETCH_TRADES':
-      handleFetchTrades(msg.filters || {}, msg.locale).then(sendResponse);
+      handleFetchTrades(msg.filters || {}, msg.locale, normalizeRequestOptions(msg)).then(sendResponse);
       return true;
 
     default:
@@ -338,7 +427,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 // ── Core fetch handler ─────────────────────────────────────────────────────
 
-async function handleFetchTrades(activeFilters, locale) {
+async function fetchTradesFromApi(activeFilters, locale) {
   // ── Build request headers ─────────────────────────────────────────────────
   // Priority: captured webRequest headers > Bearer token from localStorage/cookies
   try {
@@ -394,10 +483,96 @@ async function handleFetchTrades(activeFilters, locale) {
 
     return { ok: false, error: t(locale, 'apiAuthHint', tradesRes.status, tradesRes.statusText) };
   } catch (e) {
-    console.error('[HashHedge] handleFetchTrades error:', e);
+    console.error('[HashHedge] fetchTradesFromApi error:', e);
     return { ok: false, error: e?.message || t(locale, 'unknownError') };
   }
 }
+
+async function refreshTradeData(activeFilters, locale) {
+  const result = await fetchTradesFromApi(activeFilters, locale);
+  if (result.ok) {
+    const entry = await setCachedTradeData(activeFilters, result);
+    return toSnapshotResponse(entry);
+  }
+
+  const cachedEntry = await getCachedTradeData(activeFilters);
+  if (cachedEntry) {
+    console.warn('[HashHedge] Returning stale cached data after refresh failure:', result.error);
+    return toSnapshotResponse(cachedEntry, {
+      fromCache: true,
+      stale: true,
+      warning: result.error,
+    });
+  }
+
+  return result;
+}
+
+async function handleFetchTrades(activeFilters, locale, options = {}) {
+  const { forceRefresh, cacheOnly, minFreshMs } = normalizeRequestOptions(options);
+  const cacheKey = getCacheKey(activeFilters);
+  const cachedEntry = await getCachedTradeData(activeFilters);
+
+  if (!forceRefresh && cachedEntry && Date.now() - cachedEntry.fetchedAt <= minFreshMs) {
+    return toSnapshotResponse(cachedEntry, { fromCache: true });
+  }
+
+  if (cacheOnly) {
+    return cachedEntry ? toSnapshotResponse(cachedEntry, { fromCache: true }) : {
+      ok: false,
+      error: t(locale, 'unknownError'),
+    };
+  }
+
+  if (tradeDataRequests.has(cacheKey)) {
+    return await tradeDataRequests.get(cacheKey);
+  }
+
+  const pendingRequest = refreshTradeData(activeFilters, locale)
+    .finally(() => {
+      tradeDataRequests.delete(cacheKey);
+    });
+
+  tradeDataRequests.set(cacheKey, pendingRequest);
+  return await pendingRequest;
+}
+
+function scheduleBackgroundRefresh() {
+  chrome.alarms.create(BACKGROUND_REFRESH_ALARM, {
+    periodInMinutes: BACKGROUND_REFRESH_INTERVAL_MINUTES,
+  });
+}
+
+async function refreshDefaultTradeData(reason) {
+  const response = await handleFetchTrades(DEFAULT_FILTERS, 'en', {
+    minFreshMs: BACKGROUND_REFRESH_INTERVAL_MS,
+  });
+
+  if (!response?.ok) {
+    console.warn(`[HashHedge] Background refresh failed (${reason}):`, response?.error);
+  }
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === BACKGROUND_REFRESH_ALARM) {
+    void refreshDefaultTradeData('alarm');
+  }
+});
+
+chrome.runtime.onInstalled.addListener(() => {
+  scheduleBackgroundRefresh();
+  void refreshDefaultTradeData('install');
+});
+
+if (chrome.runtime.onStartup) {
+  chrome.runtime.onStartup.addListener(() => {
+    scheduleBackgroundRefresh();
+    void refreshDefaultTradeData('startup');
+  });
+}
+
+scheduleBackgroundRefresh();
+void refreshDefaultTradeData('load');
 
 /** Reloads the trade page tab if it exists */
 async function reloadTradePageTab() {
